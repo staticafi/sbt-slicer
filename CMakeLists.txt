@@ -1,39 +1,65 @@
 cmake_minimum_required(VERSION 2.8.8)
 project(sbt-slicer)
 
+# we need C++11 standard
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED on)
+
 # Compiler Options
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++11 -Wall -Wextra -Wno-unused-variable")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++11 -Wall -Wextra")
 
 find_package(LLVM REQUIRED CONFIG)
-if (${LLVM_PACKAGE_VERSION} VERSION_GREATER "3.4")
-  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${LLVM_DIR}")
-  include(LLVMConfig)
-endif()
-include(AddLLVM)
-
-add_definitions(${LLVM_DEFINITIONS})
-include_directories(${LLVM_INCLUDE_DIRS})
-link_directories(${LLVM_LIBRARY_DIRS})
-
-if (LLVM_SRC_PATH)
-  include_directories(${LLVM_SRC_PATH}/include)
-  SET(LLVM_INCLUDE_DIRS ${LLVM_SRC_PATH}/include)
-  message(STATUS "Got LLVM_SRC_PATH ${LLVM_SRC_PATH}")
-endif(LLVM_SRC_PATH)
-if (LLVM_BUILD_PATH)
-  include_directories(${LLVM_BUILD_PATH}/include)
-  link_directories(${LLVM_BUILD_PATH}/lib)
-  SET(LLVM_LIBRARY_DIRS ${LLVM_BUILD_PATH}/lib)
-  message(STATUS "Got LLVM_BUILD_PATH ${LLVM_BUILD_PATH}")
-endif(LLVM_BUILD_PATH)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+message(STATUS "LLVM binaries: ${LLVM_TOOLS_BINARY_DIR}")
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${LLVM_DIR}")
+include(LLVMConfig)
+include(AddLLVM)
+
 message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIRS}")
 message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
 message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
 
+include_directories(${LLVM_INCLUDE_DIRS})
+link_directories(${LLVM_LIBRARY_DIRS})
+
+# if we were provided a path to custom sources
+# use that path
+if (LLVM_SRC_PATH)
+  include_directories(${LLVM_SRC_PATH}/include)
+  message(STATUS "Looking for headers in given: ${LLVM_SRC_PATH}/include")
+else()
+  include_directories(${LLVM_INCLUDE_DIRS})
+  message(STATUS "Looking for headers in: ${LLVM_INCLUDE_DIRS}")
+endif()
+
+# if we were provided a path to custom build directory
+# use that
+if (LLVM_BUILD_PATH)
+  link_directories(${LLVM_BUILD_PATH}/lib)
+
+  # llvm-config.h
+  include_directories("${LLVM_BUILD_PATH}/include")
+  message(STATUS "Looking for libraries in given: ${LLVM_BUILD_PATH}/lib")
+else()
+  link_directories(${LLVM_LIBRARY_DIRS})
+  message(STATUS "Looking for libraries in: ${LLVM_LIBRARY_DIRS}")
+endif(LLVM_BUILD_PATH)
+
+add_definitions(${LLVM_DEFINITIONS})
+
+if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.5")
+	llvm_map_components_to_libnames(llvm_libs support core
+	                                irreader bitwriter analysis)
+else()
+	llvm_map_components_to_libraries(llvm_libs support core
+	                                 irreader bitwriter analysis)
+endif()
+
 add_definitions(-DHAVE_LLVM)
+
 # enable CFG in dg
 add_definitions(-DENABLE_CFG)
 
