@@ -1,5 +1,3 @@
-set(LLVM_LINK_COMPONENTS core engine asmparser bitreader support)
-
 # generate a git-version.h with a HEAD commit hash tag
 # (if it changed)
 add_custom_target(
@@ -8,7 +6,7 @@ add_custom_target(
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_executable(sbt-slicer sbt-slicer.cpp)
-target_link_libraries(sbt-slicer ${dg_libs})
+target_link_libraries(sbt-slicer ${dg_libs} ${llvm_libs})
 add_dependencies(sbt-slicer gitversion)
 
 install(TARGETS sbt-slicer RUNTIME DESTINATION bin)
