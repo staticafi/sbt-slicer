@@ -81,6 +81,7 @@ endif()
 find_library(LIBPTA PTA PATHS ${DG_PATH}/src/)
 find_library(LIBRD RD PATHS ${DG_PATH}/src/)
 find_library(LIBLLVMPTA LLVMpta PATHS ${DG_PATH}/src/)
+find_library(LIBLLVMRD LLVMrd PATHS ${DG_PATH}/src/)
 find_library(LIBLLVMDG LLVMdg PATHS ${DG_PATH}/src/)
 
 if (LIBPTA)
@@ -104,6 +105,13 @@ else()
 	        "libLLVMPTA library NOT found! Try specifying -DDG_PATH=<path>.")
 endif()
 
+if (LIBLLVMRD)
+	message(STATUS "LLVMrd library found: ${LIBLLVMRD}")
+else()
+	message(FATAL_ERROR
+	        "LLVMrd library NOT found! Try specifying -DDG_PATH=<path>.")
+endif()
+
 if (LIBLLVMDG)
 	message(STATUS "LLVMdg library found: ${LIBLLVMDG}")
 else()
@@ -111,7 +119,7 @@ else()
 	        "LLVMdg library NOT found! Try specifying -DDG_PATH=<path>.")
 endif()
 
-set(dg_libs ${LIBPTA} ${LIBRD} ${LIBLLVMPTA} ${LIBLLVMDG})
+set(dg_libs ${LIBPTA} ${LIBRD} ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG})
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")

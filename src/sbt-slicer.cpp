@@ -67,6 +67,7 @@
 
 #include "llvm/analysis/DefUse.h"
 #include "llvm/analysis/PointsTo/PointsTo.h"
+#include "analysis/ReachingDefinitions/SemisparseRda.h"
 #include "llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
 
 #include "analysis/PointsTo/PointsToFlowInsensitive.h"
@@ -81,6 +82,10 @@ using llvm::errs;
 
 enum PtaType {
     fs, fi, inv
+};
+
+enum RdaType {
+    dense, ss
 };
 
 llvm::cl::OptionCategory SlicingOpts("Slicer options", "");
@@ -103,9 +108,9 @@ llvm::cl::opt<std::string> slicing_criterion("c", llvm::cl::Required,
 
 llvm::cl::opt<uint64_t> pta_field_sensitivie("pta-field-sensitive",
     llvm::cl::desc("Make PTA field sensitive/insensitive. The offset in a pointer\n"
-                   "is cropped to UNKNOWN_OFFSET when it is greater than N bytes.\n"
-                   "Default is full field-sensitivity (N = UNKNOWN_OFFSET).\n"),
-                   llvm::cl::value_desc("N"), llvm::cl::init(UNKNOWN_OFFSET),
+                   "is cropped to Offset::UNKNOWNwhen it is greater than N bytes.\n"
+                   "Default is full field-sensitivity (N = Offset::UNKNOWN).\n"),
+                   llvm::cl::value_desc("N"), llvm::cl::init(Offset::UNKNOWN),
                    llvm::cl::cat(SlicingOpts));
 
 llvm::cl::opt<bool> rd_strong_update_unknown("rd-strong-update-unknown",
@@ -129,6 +134,17 @@ llvm::cl::opt<PtaType> pta("pta",
 #endif
         ),
     llvm::cl::init(fi), llvm::cl::cat(SlicingOpts));
+
+llvm::cl::opt<RdaType> rda("rda",
+    llvm::cl::desc("Choose reaching definitions analysis to use:"),
+    llvm::cl::values(
+        clEnumVal(dense, "Dense RDA (default)"),
+        clEnumVal(ss, "Semi-sparse RDA")
+#if LLVM_VERSION_MAJOR < 4
+        , nullptr
+#endif
+        ),
+    llvm::cl::init(dense), llvm::cl::cat(SlicingOpts));
 
 llvm::cl::opt<CD_ALG> CdAlgorithm("cd-alg",
     llvm::cl::desc("Choose control dependencies algorithm to use:"),
@@ -212,7 +228,14 @@ protected:
         assert(RD && "BUG: No RD");
 
         tm.start();
-        RD->run();
+        if (rda == dense) {
+            RD->run<dg::analysis::rd::ReachingDefinitionsAnalysis>();
+        } else if (rda == ss) {
+            RD->run<dg::analysis::rd::SemisparseRda>();
+        } else {
+            assert( false && "unknown RDA type" );
+        }
+
         tm.stop();
         tm.report("INFO: Reaching defs analysis took");
 
