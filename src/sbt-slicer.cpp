@@ -123,6 +123,15 @@ llvm::cl::opt<bool> undefined_are_pure("undefined-are-pure",
     llvm::cl::desc("Assume that undefined functions have no side-effects\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> criteria_are_mem_uses("criteria-are-mem-uses",
+    llvm::cl::desc("Assume that slicing criteria are not call-sites, but "
+                   "instructions that write/read to/from memory "
+                   "using the arguments in the criteria calls. "
+                   "E.g. for 'crit' being set as the criterion, slicing critera "
+                   "are all load/store that use some 'x' as pointer operand "
+                   "for which crit(x) appears in the code\n"),
+                   llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
+
 llvm::cl::opt<PtaType> pta("pta",
     llvm::cl::desc("Choose pointer analysis to use:"),
     llvm::cl::values(
@@ -204,7 +213,6 @@ static std::vector<std::string> splitList(const std::string& opt)
     return ret;
 }
 
-
 /// --------------------------------------------------------------------
 //   - Slicer class -
 //
@@ -251,6 +259,48 @@ protected:
         dg.computeControlDependencies(CdAlgorithm);
         tm.stop();
         tm.report("INFO: Computing control dependencies took");
+    }
+
+    std::set<LLVMNode *> _getMemoryOperations(const std::set<LLVMNode *>& callsites) {
+        std::set<LLVMNode *> nodes;
+
+        for (LLVMNode *cs: callsites) {
+            for (unsigned i = 0, e = cs->getOperandsNum(); i < e; ++i) {
+                LLVMNode *operand = cs->getOperand(i);
+                if (!operand) {
+                    continue;
+                }
+
+                // now find all store/loads that use this operand
+                // as pointer operand
+                llvm::Value *llvmOp = operand->getValue();
+                assert(llvmOp && "No llvm value in operand");
+
+                for (auto I = llvmOp->use_begin(), E = llvmOp->use_end(); I != E; ++I) {
+#if ((LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR < 5))
+                    llvm::Value *use = *I;
+#else
+                    llvm::Value *use = I->getUser();
+#endif
+                    bool match = false;
+                    if (llvm::StoreInst *SI = llvm::dyn_cast<llvm::StoreInst>(use)) {
+                        match = (llvmOp == SI->getPointerOperand());
+                    } else if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(use)) {
+                        match = (llvmOp == LI->getPointerOperand());
+                    }
+
+                    if (match) {
+                        LLVMNode *useNode = dg.getNode(use);
+                        assert(useNode && "DG does not have such node");
+                        assert((useNode->getKey() == use) && "wrong node");
+
+                        nodes.insert(useNode);
+                    }
+                }
+            }
+        }
+
+        return nodes;
     }
 
 public:
@@ -316,6 +366,15 @@ public:
         slicer.keepFunctionUntouched("__VERIFIER_assume");
         slicer.keepFunctionUntouched("__VERIFIER_exit");
         slice_id = 0xdead;
+
+        if (criteria_are_mem_uses) {
+            // instead of nodes for call-sites,
+            // get nodes for instructions that use
+            // some of the arguments of the calls
+            // FIXME: finish me
+            auto nodes = _getMemoryOperations(callsites);
+            callsites.swap(nodes);
+        }
 
         tm.start();
         for (LLVMNode *start : callsites)
