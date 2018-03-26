@@ -123,6 +123,15 @@ llvm::cl::opt<bool> undefined_are_pure("undefined-are-pure",
     llvm::cl::desc("Assume that undefined functions have no side-effects\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> criteria_are_mem_uses("criteria-are-mem-uses",
+    llvm::cl::desc("Assume that slicing criteria are not call-sites, but "
+                   "instructions that write/read to/from memory "
+                   "using the arguments in the criteria calls. "
+                   "E.g. for 'crit' being set as the criterion, slicing critera "
+                   "are all load/store that use some 'x' as pointer operand "
+                   "for which crit(x) appears in the code\n"),
+                   llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
+
 llvm::cl::opt<PtaType> pta("pta",
     llvm::cl::desc("Choose pointer analysis to use:"),
     llvm::cl::values(
@@ -204,7 +213,6 @@ static std::vector<std::string> splitList(const std::string& opt)
     return ret;
 }
 
-
 /// --------------------------------------------------------------------
 //   - Slicer class -
 //
@@ -218,6 +226,7 @@ protected:
     llvm::Module *M;
     std::unique_ptr<LLVMPointerAnalysis> PTA;
     std::unique_ptr<LLVMReachingDefinitions> RD;
+    std::set<LLVMNode *> criteria;
     LLVMDependenceGraph dg;
     LLVMSlicer slicer;
 
@@ -253,6 +262,50 @@ protected:
         tm.report("INFO: Computing control dependencies took");
     }
 
+    std::set<LLVMNode *> _getMemoryOperations(const std::set<LLVMNode *>& callsites) {
+        std::set<LLVMNode *> nodes;
+
+        for (LLVMNode *cs: callsites) {
+            for (unsigned i = 0, e = cs->getOperandsNum(); i < e; ++i) {
+                LLVMNode *operand = cs->getOperand(i);
+                if (!operand) {
+                    continue;
+                }
+
+                // now find all store/loads that use this operand
+                // as pointer operand. NOTE: strip pointer casts,
+                // as instrumentation casts the pointer to *i8
+                llvm::Value *llvmOp = operand->getValue()->stripPointerCasts();
+                assert(llvmOp && "No llvm value in operand");
+
+                for (auto I = llvmOp->use_begin(), E = llvmOp->use_end(); I != E; ++I) {
+#if ((LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR < 5))
+                    llvm::Value *use = *I;
+#else
+                    llvm::Value *use = I->getUser();
+#endif
+                    bool match = false;
+                    if (llvm::StoreInst *SI = llvm::dyn_cast<llvm::StoreInst>(use)) {
+                        match = (llvmOp == SI->getPointerOperand());
+                    } else if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(use)) {
+                        match = (llvmOp == LI->getPointerOperand());
+                    }
+
+                    if (match) {
+                        LLVMDependenceGraph *local_dg = operand->getDG();
+                        LLVMNode *useNode = local_dg->getNode(use);
+                        assert(useNode && "DG does not have such node");
+                        assert((useNode->getKey() == use) && "wrong node");
+
+                        nodes.insert(useNode);
+                    }
+                }
+            }
+        }
+
+        return nodes;
+    }
+
 public:
     Slicer(llvm::Module *mod)
     :M(mod),
@@ -261,6 +314,9 @@ public:
                                      rd_strong_update_unknown, undefined_are_pure)) {
         assert(mod && "Need module");
     }
+
+    const std::set<LLVMNode *>& getSlicingCriteria() const { return criteria; }
+
     const LLVMDependenceGraph& getDG() const { return dg; }
     LLVMDependenceGraph& getDG() { return dg; }
 
@@ -317,8 +373,25 @@ public:
         slicer.keepFunctionUntouched("__VERIFIER_exit");
         slice_id = 0xdead;
 
+        if (criteria_are_mem_uses) {
+            // instead of nodes for call-sites,
+            // get nodes for instructions that use
+            // some of the arguments of the calls
+            // FIXME: finish me
+            auto nodes = _getMemoryOperations(callsites);
+            callsites.swap(nodes);
+
+            // we also need to get the calls of "free" function
+            // as it uses the memory. Get it again
+            // also if we got it already, because
+            // _getMemoryOperations removed it.
+            dg.getCallSites({"free"}, &callsites);
+        }
+
+        criteria.swap(callsites);
+
         tm.start();
-        for (LLVMNode *start : callsites)
+        for (LLVMNode *start : criteria)
             slice_id = slicer.mark(start, slice_id);
 
         tm.stop();
@@ -580,7 +653,8 @@ static int save_module(llvm::Module *M,
 
 static void dump_dg_to_dot(LLVMDependenceGraph& dg, bool bb_only = false,
                            uint32_t dump_opts = debug::PRINT_DD | debug::PRINT_CD,
-                           const char *suffix = nullptr)
+                           const char *suffix = nullptr,
+                           const std::set<LLVMNode *>* crit = nullptr)
 {
     // compose new name
     std::string fl(llvmfile);
@@ -596,6 +670,8 @@ static void dump_dg_to_dot(LLVMDependenceGraph& dg, bool bb_only = false,
         dumper.dump();
     } else {
         debug::LLVMDG2Dot dumper(&dg, dump_opts, fl.c_str());
+        if (crit)
+            dumper.setSlicingCriteria(*crit);
         dumper.dump();
     }
 }
@@ -696,7 +772,8 @@ int main(int argc, char *argv[])
     slicer.mark();
 
     if (dump_dg) {
-        dump_dg_to_dot(slicer.getDG(), bb_only, dump_opts);
+        dump_dg_to_dot(slicer.getDG(), bb_only, dump_opts,
+                       nullptr, &slicer.getSlicingCriteria());
 
         if (dump_dg_only)
             return 0;
@@ -710,7 +787,8 @@ int main(int argc, char *argv[])
 
     if (dump_dg) {
         dump_dg_to_dot(slicer.getDG(), bb_only,
-                       dump_opts, ".sliced.dot");
+                       dump_opts, ".sliced.dot",
+                       &slicer.getSlicingCriteria());
     }
 
     // remove unused from module again, since slicing
