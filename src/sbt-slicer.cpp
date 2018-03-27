@@ -388,6 +388,8 @@ public:
             dg.getCallSites({"free"}, &callsites);
         }
 
+        criteria.swap(callsites);
+
         tm.start();
         for (LLVMNode *start : criteria)
             slice_id = slicer.mark(start, slice_id);
