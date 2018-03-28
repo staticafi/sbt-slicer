@@ -123,13 +123,13 @@ llvm::cl::opt<bool> undefined_are_pure("undefined-are-pure",
     llvm::cl::desc("Assume that undefined functions have no side-effects\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
-llvm::cl::opt<bool> criteria_are_mem_uses("criteria-are-mem-uses",
-    llvm::cl::desc("Assume that slicing criteria are not call-sites, but "
-                   "instructions that write/read to/from memory "
-                   "using the arguments in the criteria calls. "
+llvm::cl::opt<bool> criteria_are_next_instr("criteria-are-next-instr",
+    llvm::cl::desc("Assume that slicing criteria are not the call-sites\n"
+                   "of the given function, but the instructions that\n"
+                   "follow the call. I.e. the call is used just to mark\n"
+                   "the instruction.\n"
                    "E.g. for 'crit' being set as the criterion, slicing critera "
-                   "are all load/store that use some 'x' as pointer operand "
-                   "for which crit(x) appears in the code\n"),
+                   "are all instructions that follow any call of 'crit'.\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
 llvm::cl::opt<PtaType> pta("pta",
@@ -262,45 +262,24 @@ protected:
         tm.report("INFO: Computing control dependencies took");
     }
 
-    std::set<LLVMNode *> _getMemoryOperations(const std::set<LLVMNode *>& callsites) {
+    std::set<LLVMNode *> _mapToNextInstr(const std::set<LLVMNode *>& callsites) {
         std::set<LLVMNode *> nodes;
 
         for (LLVMNode *cs: callsites) {
-            for (unsigned i = 0, e = cs->getOperandsNum(); i < e; ++i) {
-                LLVMNode *operand = cs->getOperand(i);
-                if (!operand) {
-                    continue;
-                }
-
-                // now find all store/loads that use this operand
-                // as pointer operand. NOTE: strip pointer casts,
-                // as instrumentation casts the pointer to *i8
-                llvm::Value *llvmOp = operand->getValue()->stripPointerCasts();
-                assert(llvmOp && "No llvm value in operand");
-
-                for (auto I = llvmOp->use_begin(), E = llvmOp->use_end(); I != E; ++I) {
-#if ((LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR < 5))
-                    llvm::Value *use = *I;
-#else
-                    llvm::Value *use = I->getUser();
-#endif
-                    bool match = false;
-                    if (llvm::StoreInst *SI = llvm::dyn_cast<llvm::StoreInst>(use)) {
-                        match = (llvmOp == SI->getPointerOperand());
-                    } else if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(use)) {
-                        match = (llvmOp == LI->getPointerOperand());
-                    }
-
-                    if (match) {
-                        LLVMDependenceGraph *local_dg = operand->getDG();
-                        LLVMNode *useNode = local_dg->getNode(use);
-                        assert(useNode && "DG does not have such node");
-                        assert((useNode->getKey() == use) && "wrong node");
-
-                        nodes.insert(useNode);
-                    }
-                }
+            llvm::Instruction *I = llvm::dyn_cast<llvm::Instruction>(cs->getValue());
+            assert(I && "Callsite is not an instruction");
+            llvm::Instruction *succ = I->getNextNode();
+            if (!succ) {
+                llvm::errs() << *I << "has no successor that could be criterion\n";
+                // abort for now
+                abort();
             }
+
+            LLVMDependenceGraph *local_dg = cs->getDG();
+            LLVMNode *node = local_dg->getNode(succ);
+            assert(node && "DG does not have such node");
+
+            nodes.insert(node);
         }
 
         return nodes;
@@ -373,19 +352,13 @@ public:
         slicer.keepFunctionUntouched("__VERIFIER_exit");
         slice_id = 0xdead;
 
-        if (criteria_are_mem_uses) {
+        if (criteria_are_next_instr) {
             // instead of nodes for call-sites,
             // get nodes for instructions that use
             // some of the arguments of the calls
             // FIXME: finish me
-            auto nodes = _getMemoryOperations(callsites);
+            auto nodes = _mapToNextInstr(callsites);
             callsites.swap(nodes);
-
-            // we also need to get the calls of "free" function
-            // as it uses the memory. Get it again
-            // also if we got it already, because
-            // _getMemoryOperations removed it.
-            dg.getCallSites({"free"}, &callsites);
         }
 
         criteria.swap(callsites);
