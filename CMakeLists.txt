@@ -50,7 +50,7 @@ endif(LLVM_BUILD_PATH)
 
 add_definitions(${LLVM_DEFINITIONS})
 
-if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.5")
+if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
 	llvm_map_components_to_libnames(llvm_libs support core
 	                                irreader bitwriter analysis)
 else()
@@ -62,14 +62,6 @@ add_definitions(-DHAVE_LLVM)
 
 # enable CFG in dg
 add_definitions(-DENABLE_CFG)
-
-# Find the libraries that correspond to the LLVM components
-# that we wish to use
-if (${LLVM_PACKAGE_VERSION} VERSION_GREATER "3.4")
-  llvm_map_components_to_libnames(llvm_libs support core irreader bitwriter)
-else()
-  llvm_map_components_to_libraries(llvm_libs support core irreader bitwriter)
-endif()
 
 if (DG_PATH)
 	include_directories(${DG_PATH}/src/)
