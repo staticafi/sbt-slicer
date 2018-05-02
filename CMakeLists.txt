@@ -25,14 +25,13 @@ message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
 include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBRARY_DIRS})
 
-# if we were provided a path to custom sources
-# use that path
+# if we were provided a path to custom sources use that path
 if (LLVM_SRC_PATH)
   include_directories(${LLVM_SRC_PATH}/include)
-  message(STATUS "Looking for headers in given: ${LLVM_SRC_PATH}/include")
+  message(STATUS "Looking for LLVM headers in given: ${LLVM_SRC_PATH}/include")
 else()
   include_directories(${LLVM_INCLUDE_DIRS})
-  message(STATUS "Looking for headers in: ${LLVM_INCLUDE_DIRS}")
+  message(STATUS "Looking for LLVM headers in: ${LLVM_INCLUDE_DIRS}")
 endif()
 
 # if we were provided a path to custom build directory
@@ -58,57 +57,72 @@ else()
 	                                 irreader bitwriter analysis)
 endif()
 
+# enable CFG and LLVM in dg
+add_definitions(-DENABLE_CFG)
 add_definitions(-DHAVE_LLVM)
 
-# enable CFG in dg
-add_definitions(-DENABLE_CFG)
-
-if (DG_PATH)
-	include_directories(${DG_PATH}/src/)
+if(DG_INCLUDE_PATH)
 else()
-	set(DG_PATH ${CMAKE_SOURCE_DIR}/dg)
-	include_directories(${CMAKE_SOURCE_DIR}/dg/src)
+	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/src)
 endif()
 
-find_library(LIBPTA PTA PATHS ${DG_PATH}/src/)
-find_library(LIBRD RD PATHS ${DG_PATH}/src/)
-find_library(LIBLLVMPTA LLVMpta PATHS ${DG_PATH}/src/)
-find_library(LIBLLVMRD LLVMrd PATHS ${DG_PATH}/src/)
-find_library(LIBLLVMDG LLVMdg PATHS ${DG_PATH}/src/)
+if(DG_LIB_PATH)
+else()
+	set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/src)
+endif()
+
+# DG_PATH is a path to an in-source build of dg
+if (DG_PATH)
+	message(STATUS "Setting-up paths to an in-source build of dg")
+	set(DG_INCLUDE_PATH ${DG_PATH}/src)
+	set(DG_LIB_PATH ${DG_PATH}/src)
+endif()
+
+message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
+message(STATUS "DG library paths: ${DG_LIB_PATH}")
+
+include_directories(${DG_INCLUDE_PATH})
+link_directories(${DG_LIB_PATH})
+
+find_library(LIBPTA PTA PATH ${DG_LIB_PATH})
+find_library(LIBRD RD PATH ${DG_LIB_PATH})
+find_library(LIBLLVMPTA LLVMpta PATH ${DG_LIB_PATH})
+find_library(LIBLLVMRD LLVMrd PATH ${DG_LIB_PATH})
+find_library(LIBLLVMDG LLVMdg PATH ${DG_LIB_PATH})
 
 if (LIBPTA)
 	message(STATUS "libPTA library found: ${LIBPTA}")
 else()
 	message(FATAL_ERROR
-	        "libPTA library NOT found! Try specifying -DDG_PATH=<path>.")
+	        "libPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBRD)
 	message(STATUS "libRD library found: ${LIBRD}")
 else()
 	message(FATAL_ERROR
-	        "libRD library NOT found! Try specifying -DDG_PATH=<path>.")
+	        "libRD library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBLLVMPTA)
 	message(STATUS "libLLVMPTA library found: ${LIBLLVMPTA}")
 else()
 	message(FATAL_ERROR
-	        "libLLVMPTA library NOT found! Try specifying -DDG_PATH=<path>.")
+	        "libLLVMPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBLLVMRD)
 	message(STATUS "LLVMrd library found: ${LIBLLVMRD}")
 else()
 	message(FATAL_ERROR
-	        "LLVMrd library NOT found! Try specifying -DDG_PATH=<path>.")
+	        "LLVMrd library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBLLVMDG)
 	message(STATUS "LLVMdg library found: ${LIBLLVMDG}")
 else()
 	message(FATAL_ERROR
-	        "LLVMdg library NOT found! Try specifying -DDG_PATH=<path>.")
+	        "LLVMdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 set(dg_libs ${LIBPTA} ${LIBRD} ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG})
