@@ -288,8 +288,8 @@ protected:
 public:
     Slicer(llvm::Module *mod)
     :M(mod),
-     PTA(new LLVMPointerAnalysis(mod, pta_field_sensitivie)),
-      RD(new LLVMReachingDefinitions(mod, PTA.get(),
+     PTA(new LLVMPointerAnalysis(mod, "main", pta_field_sensitivie)),
+      RD(new LLVMReachingDefinitions(mod, PTA.get(), "main",
                                      rd_strong_update_unknown, undefined_are_pure)) {
         assert(mod && "Need module");
     }
