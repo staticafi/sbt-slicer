@@ -84,11 +84,19 @@ message(STATUS "DG library paths: ${DG_LIB_PATH}")
 include_directories(${DG_INCLUDE_PATH})
 link_directories(${DG_LIB_PATH})
 
+find_library(LIBDGANALYSIS DGAnalysis PATH ${DG_LIB_PATH})
 find_library(LIBPTA PTA PATH ${DG_LIB_PATH})
 find_library(LIBRD RD PATH ${DG_LIB_PATH})
 find_library(LIBLLVMPTA LLVMpta PATH ${DG_LIB_PATH})
 find_library(LIBLLVMRD LLVMrd PATH ${DG_LIB_PATH})
 find_library(LIBLLVMDG LLVMdg PATH ${DG_LIB_PATH})
+
+if (LIBDGANALYSIS)
+	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
+else()
+	message(FATAL_ERROR
+	        "libDGAnalysis library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+endif()
 
 if (LIBPTA)
 	message(STATUS "libPTA library found: ${LIBPTA}")
@@ -125,7 +133,8 @@ else()
 	        "LLVMdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
-set(dg_libs ${LIBPTA} ${LIBRD} ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG})
+set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
+	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG})
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")

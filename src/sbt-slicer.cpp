@@ -60,25 +60,31 @@
 #include <iostream>
 #include <fstream>
 
-#include "llvm/LLVMDependenceGraph.h"
-#include "llvm/Slicer.h"
-#include "llvm/LLVMDG2Dot.h"
+#include "dg/llvm/LLVMDependenceGraph.h"
+#include "dg/llvm/LLVMSlicer.h"
+#include "dg/llvm/LLVMDG2Dot.h"
 #include "TimeMeasure.h"
 
-#include "llvm/analysis/DefUse.h"
-#include "llvm/analysis/PointsTo/PointsTo.h"
-#include "analysis/ReachingDefinitions/SemisparseRda.h"
-#include "llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
+#include "dg/llvm/analysis/DefUse/DefUse.h"
+#include "dg/llvm/analysis/PointsTo/PointerAnalysis.h"
+#include "dg/analysis/ReachingDefinitions/SemisparseRda.h"
+#include "dg/llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
 
-#include "analysis/PointsTo/PointsToFlowInsensitive.h"
-#include "analysis/PointsTo/PointsToFlowSensitive.h"
-#include "analysis/PointsTo/PointsToWithInvalidate.h"
-#include "analysis/PointsTo/Pointer.h"
+#include "dg/llvm/analysis/PointsTo/LLVMPointerAnalysisOptions.h"
+#include "dg/llvm/analysis/ReachingDefinitions/LLVMReachingDefinitionsAnalysisOptions.h"
+
+#include "dg/analysis/PointsTo/PointerAnalysisFI.h"
+#include "dg/analysis/PointsTo/PointerAnalysisFS.h"
+#include "dg/analysis/PointsTo/PointerAnalysisFSInv.h"
+#include "dg/analysis/PointsTo/Pointer.h"
 
 #include "git-version.h"
 
 using namespace dg;
 using llvm::errs;
+
+using analysis::LLVMPointerAnalysisOptions;
+using analysis::LLVMReachingDefinitionsAnalysisOptions;
 
 enum PtaType {
     fs, fi, inv
@@ -106,7 +112,7 @@ llvm::cl::opt<std::string> slicing_criterion("c", llvm::cl::Required,
                    "function calls, e.g. -c foo,bar\n"), llvm::cl::value_desc("func"),
                    llvm::cl::init(""), llvm::cl::cat(SlicingOpts));
 
-llvm::cl::opt<uint64_t> pta_field_sensitivie("pta-field-sensitive",
+llvm::cl::opt<dg::analysis::Offset> pta_field_sensitivie("pta-field-sensitive",
     llvm::cl::desc("Make PTA field sensitive/insensitive. The offset in a pointer\n"
                    "is cropped to Offset::UNKNOWNwhen it is greater than N bytes.\n"
                    "Default is full field-sensitivity (N = Offset::UNKNOWN).\n"),
@@ -285,12 +291,25 @@ protected:
         return nodes;
     }
 
+    LLVMPointerAnalysisOptions createPTAOptions() {
+        LLVMPointerAnalysisOptions opts;
+        opts.setFieldSensitivity(pta_field_sensitivie);
+        return opts;
+    }
+
+    LLVMReachingDefinitionsAnalysisOptions createRDAOptions() {
+         LLVMReachingDefinitionsAnalysisOptions opts;
+         opts.setStrongUpdateUnknown(rd_strong_update_unknown);
+         opts.setUndefinedArePure(undefined_are_pure);
+         return opts;
+    }
+
 public:
     Slicer(llvm::Module *mod)
-    :M(mod),
-     PTA(new LLVMPointerAnalysis(mod, "main", pta_field_sensitivie)),
-      RD(new LLVMReachingDefinitions(mod, PTA.get(), "main",
-                                     rd_strong_update_unknown, undefined_are_pure)) {
+
+    : M(mod),
+      PTA(new LLVMPointerAnalysis(mod, createPTAOptions())),
+      RD(new LLVMReachingDefinitions(mod, PTA.get(), createRDAOptions())) {
         assert(mod && "Need module");
     }
 
@@ -406,11 +425,11 @@ public:
         tm.start();
 
         if (pta == PtaType::fs)
-            PTA->run<analysis::pta::PointsToFlowSensitive>();
+            PTA->run<analysis::pta::PointerAnalysisFS>();
         else if (pta == PtaType::fi)
-            PTA->run<analysis::pta::PointsToFlowInsensitive>();
+            PTA->run<analysis::pta::PointerAnalysisFI>();
         else if (pta == PtaType::inv)
-            PTA->run<analysis::pta::PointsToWithInvalidate>();
+            PTA->run<analysis::pta::PointerAnalysisFSInv>();
         else
             assert(0 && "Wrong pointer analysis");
 
