@@ -63,19 +63,19 @@ add_definitions(-DHAVE_LLVM)
 
 if(DG_INCLUDE_PATH)
 else()
-	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/src)
+	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include)
 endif()
 
 if(DG_LIB_PATH)
 else()
-	set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/src)
+	set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/lib)
 endif()
 
 # DG_PATH is a path to an in-source build of dg
 if (DG_PATH)
 	message(STATUS "Setting-up paths to an in-source build of dg")
-	set(DG_INCLUDE_PATH ${DG_PATH}/src)
-	set(DG_LIB_PATH ${DG_PATH}/src)
+	set(DG_INCLUDE_PATH ${DG_PATH}/include)
+	set(DG_LIB_PATH ${DG_PATH}/lib)
 endif()
 
 message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
