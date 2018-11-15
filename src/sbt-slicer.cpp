@@ -65,6 +65,7 @@
 #include "dg/llvm/LLVMDG2Dot.h"
 #include "TimeMeasure.h"
 
+#include "dg/analysis/AnalysisOptions.h"
 #include "dg/llvm/analysis/DefUse/DefUse.h"
 #include "dg/llvm/analysis/DefUse/LLVMDefUseAnalysisOptions.h"
 #include "dg/llvm/analysis/PointsTo/PointerAnalysis.h"
@@ -83,6 +84,7 @@
 using namespace dg;
 using llvm::errs;
 
+using analysis::AllocationFunction;
 using analysis::LLVMPointerAnalysisOptions;
 using analysis::LLVMReachingDefinitionsAnalysisOptions;
 using analysis::LLVMDefUseAnalysisOptions;
@@ -220,6 +222,14 @@ static std::vector<std::string> splitList(const std::string& opt)
     return ret;
 }
 
+const std::pair<const char *, AllocationFunction>
+allocationFuns[] = {
+    {"__VERIFIER_malloc", AllocationFunction::MALLOC},
+    {"__VERIFIER_malloc0", AllocationFunction::MALLOC},
+    {"__VERIFIER_calloc", AllocationFunction::CALLOC},
+    {"__VERIFIER_calloc0", AllocationFunction::CALLOC},
+};
+
 /// --------------------------------------------------------------------
 //   - Slicer class -
 //
@@ -292,15 +302,24 @@ protected:
         return nodes;
     }
 
+    template <typename Opts>
+    void addAllocationFunctions(Opts& opts) {
+        for (auto& it : allocationFuns) {
+            opts.addAllocationFunction(it.first, it.second);
+        }
+    }
+
     LLVMDefUseAnalysisOptions createDUOptions() {
         LLVMDefUseAnalysisOptions opts;
         opts.undefinedArePure = undefined_are_pure;
+        addAllocationFunctions(opts);
         return opts;
     }
 
     LLVMPointerAnalysisOptions createPTAOptions() {
         LLVMPointerAnalysisOptions opts;
         opts.setFieldSensitivity(pta_field_sensitivie);
+        addAllocationFunctions(opts);
         return opts;
     }
 
@@ -308,6 +327,7 @@ protected:
          LLVMReachingDefinitionsAnalysisOptions opts;
          opts.setStrongUpdateUnknown(rd_strong_update_unknown);
          opts.setUndefinedArePure(undefined_are_pure);
+         addAllocationFunctions(opts);
          return opts;
     }
 
