@@ -66,10 +66,10 @@
 #include "TimeMeasure.h"
 
 #include "dg/llvm/analysis/DefUse/DefUse.h"
+#include "dg/llvm/analysis/DefUse/LLVMDefUseAnalysisOptions.h"
 #include "dg/llvm/analysis/PointsTo/PointerAnalysis.h"
 #include "dg/analysis/ReachingDefinitions/SemisparseRda.h"
 #include "dg/llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
-
 #include "dg/llvm/analysis/PointsTo/LLVMPointerAnalysisOptions.h"
 #include "dg/llvm/analysis/ReachingDefinitions/LLVMReachingDefinitionsAnalysisOptions.h"
 
@@ -85,6 +85,7 @@ using llvm::errs;
 
 using analysis::LLVMPointerAnalysisOptions;
 using analysis::LLVMReachingDefinitionsAnalysisOptions;
+using analysis::LLVMDefUseAnalysisOptions;
 
 enum PtaType {
     fs, fi, inv
@@ -255,7 +256,7 @@ protected:
         tm.report("INFO: Reaching defs analysis took");
 
         LLVMDefUseAnalysis DUA(&dg, RD.get(),
-                               PTA.get(), undefined_are_pure);
+                               PTA.get(), createDUOptions());
         tm.start();
         DUA.run(); // add def-use edges according that
         tm.stop();
@@ -289,6 +290,12 @@ protected:
         }
 
         return nodes;
+    }
+
+    LLVMDefUseAnalysisOptions createDUOptions() {
+        LLVMDefUseAnalysisOptions opts;
+        opts.undefinedArePure = undefined_are_pure;
+        return opts;
     }
 
     LLVMPointerAnalysisOptions createPTAOptions() {
