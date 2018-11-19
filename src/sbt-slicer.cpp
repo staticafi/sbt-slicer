@@ -328,6 +328,10 @@ protected:
          opts.setStrongUpdateUnknown(rd_strong_update_unknown);
          opts.setUndefinedArePure(undefined_are_pure);
          addAllocationFunctions(opts);
+
+         // XXX: we should do this only when we are searching from marker criteria
+         opts.functionModelSet("llvm.lifetime.start", FunctionModel::Defines(1, Offset(0), Offset::getUnknown()));
+         opts.functionModelSet("llvm.lifetime.end", FunctionModel::Defines(1, Offset(0), Offset::getUnknown()));
          return opts;
     }
 
