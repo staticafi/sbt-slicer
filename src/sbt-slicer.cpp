@@ -306,6 +306,15 @@ allocationFuns[] = {
     {"__VERIFIER_calloc0", AllocationFunction::CALLOC},
 };
 
+static inline Offset getAllocatedSize(llvm::Type *Ty, const llvm::DataLayout *DL)
+{
+    // Type can be i8 *null or similar
+    if (!Ty->isSized())
+            return Offset::UNKNOWN;
+
+    return Offset(DL->getTypeAllocSize(Ty));
+}
+
 /// --------------------------------------------------------------------
 //   - Slicer class -
 //
@@ -320,6 +329,7 @@ protected:
     std::unique_ptr<LLVMPointerAnalysis> PTA;
     std::unique_ptr<LLVMReachingDefinitions> RD;
     std::set<LLVMNode *> criteria;
+    std::set<LLVMNode *> callsites;
     LLVMDependenceGraph dg;
     LLVMSlicer slicer;
 
@@ -372,6 +382,34 @@ protected:
             LLVMNode *node = local_dg->getNode(succ);
             assert(node && "DG does not have such node");
 
+            // FIXME: do this only for marker configuration
+            if (llvm::isa<llvm::StoreInst>(succ)) {
+                // we want to take store as it would use the memory
+                auto ptnode = PTA->getPointsTo(succ->getOperand(1));
+                assert(ptnode);
+                for (const auto& ptr : ptnode->pointsTo) {
+                    if (!ptr.isValid() || ptr.isInvalidated())
+                        continue;
+                    auto size = getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
+                    auto rdnodes = RD->getLLVMReachingDefinitions(succ, ptr.target->getUserData<llvm::Value>(),
+                                                                  ptr.offset, size);
+                    const auto& funs = getConstructedFunctions();
+                    for (auto val : rdnodes) {
+                        auto I = llvm::dyn_cast<llvm::Instruction>(val);
+                        if (!I)
+                            continue;
+                        auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
+                        assert(it != funs.end());
+                        auto local_dg = it->second;
+                        assert(local_dg);
+
+                        LLVMNode *node = local_dg->getNode(val);
+                        assert(node && "DG does not have such node");
+                        nodes.insert(node);
+                    }
+                }
+            }
+
             nodes.insert(node);
         }
 
@@ -423,6 +461,7 @@ public:
     }
 
     const std::set<LLVMNode *>& getSlicingCriteria() const { return criteria; }
+    const std::set<LLVMNode *>& getCriteriaNodes() const { return callsites; }
 
     const LLVMDependenceGraph& getDG() const { return dg; }
     LLVMDependenceGraph& getDG() { return dg; }
@@ -431,7 +470,6 @@ public:
     bool mark()
     {
         debug::TimeMeasure tm;
-        std::set<LLVMNode *> callsites;
 
         std::vector<std::string> criterions = splitList(slicing_criterion);
         assert(!criterions.empty() && "Do not have the slicing criterion");
@@ -876,7 +914,7 @@ int main(int argc, char *argv[])
     slicer.mark();
 
     if (annotator.shouldAnnotate()) {
-        annotator.annotate();
+        annotator.annotate(&slicer.getCriteriaNodes());
     }
 
     if (dump_dg) {
