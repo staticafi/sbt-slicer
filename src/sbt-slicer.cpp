@@ -137,6 +137,10 @@ llvm::cl::opt<bool> undefined_are_pure("undefined-are-pure",
     llvm::cl::desc("Assume that undefined functions have no side-effects\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> terminationSensitive("termination-sensitive",
+    llvm::cl::desc("Take termination into account (note: infinite loops may not work properly)\n"),
+                   llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
+
 llvm::cl::opt<bool> criteria_are_next_instr("criteria-are-next-instr",
     llvm::cl::desc("Assume that slicing criteria are not the call-sites\n"
                    "of the given function, but the instructions that\n"
@@ -360,7 +364,7 @@ protected:
 
         tm.start();
         // add post-dominator frontiers
-        dg.computeControlDependencies(CdAlgorithm);
+        dg.computeControlDependencies(CdAlgorithm, terminationSensitive);
         tm.stop();
         tm.report("INFO: Computing control dependencies took");
     }
