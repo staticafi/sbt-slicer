@@ -450,8 +450,12 @@ protected:
          // XXX: we should do this only when we are searching from marker criteria
          opts.functionModelSet("llvm.lifetime.start",
                                dg::analysis::FunctionModel::Defines(1, Offset(0), Offset::getUnknown()));
+         opts.functionModelSet("__VERIFIER_scope_enter",
+                               dg::analysis::FunctionModel::Defines(0, Offset(0), Offset::getUnknown()));
          opts.functionModelSet("llvm.lifetime.end",
                                dg::analysis::FunctionModel::Defines(1, Offset(0), Offset::getUnknown()));
+         opts.functionModelSet("__VERIFIER_scope_leave",
+                               dg::analysis::FunctionModel::Defines(0, Offset(0), Offset::getUnknown()));
          return opts;
     }
 
