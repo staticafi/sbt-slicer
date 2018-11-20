@@ -389,27 +389,27 @@ protected:
             // FIXME: do this only for marker configuration
             if (llvm::isa<llvm::StoreInst>(succ)) {
                 // we want to take store as it would use the memory
-                auto ptnode = PTA->getPointsTo(succ->getOperand(1));
-                assert(ptnode);
-                for (const auto& ptr : ptnode->pointsTo) {
-                    if (!ptr.isValid() || ptr.isInvalidated())
-                        continue;
-                    auto size = getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
-                    auto rdnodes = RD->getLLVMReachingDefinitions(succ, ptr.target->getUserData<llvm::Value>(),
-                                                                  ptr.offset, size);
-                    const auto& funs = getConstructedFunctions();
-                    for (auto val : rdnodes) {
-                        auto I = llvm::dyn_cast<llvm::Instruction>(val);
-                        if (!I)
+                if (auto ptnode = PTA->getPointsTo(succ->getOperand(1))) {
+                    for (const auto& ptr : ptnode->pointsTo) {
+                        if (!ptr.isValid() || ptr.isInvalidated())
                             continue;
-                        auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
-                        assert(it != funs.end());
-                        auto local_dg = it->second;
-                        assert(local_dg);
+                        auto size = getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
+                        auto rdnodes = RD->getLLVMReachingDefinitions(succ, ptr.target->getUserData<llvm::Value>(),
+                                                                      ptr.offset, size);
+                        const auto& funs = getConstructedFunctions();
+                        for (auto val : rdnodes) {
+                            auto I = llvm::dyn_cast<llvm::Instruction>(val);
+                            if (!I)
+                                continue;
+                            auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
+                            assert(it != funs.end());
+                            auto local_dg = it->second;
+                            assert(local_dg);
 
-                        LLVMNode *node = local_dg->getNode(val);
-                        assert(node && "DG does not have such node");
-                        nodes.insert(node);
+                            LLVMNode *node = local_dg->getNode(val);
+                            assert(node && "DG does not have such node");
+                            nodes.insert(node);
+                        }
                     }
                 }
             }
