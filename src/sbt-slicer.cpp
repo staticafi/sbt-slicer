@@ -458,6 +458,8 @@ protected:
                                dg::analysis::FunctionModel::Defines(0, Offset(0), Offset::getUnknown()));
          opts.functionModelSet("klee_make_symbolic",
                                dg::analysis::FunctionModel::Defines(0, 0, 1));
+         opts.functionModelSet("klee_make_nondet",
+                               dg::analysis::FunctionModel::Defines(0, 0, 1));
          return opts;
     }
 
