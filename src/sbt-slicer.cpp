@@ -771,7 +771,12 @@ static bool write_module(llvm::Module *M)
 
     // write the module
     errs() << "INFO: saving sliced module to: " << fl.c_str() << "\n";
-    llvm::WriteBitcodeToFile(M, ostream);
+
+    #if (LLVM_VERSION_MAJOR > 6)
+        llvm::WriteBitcodeToFile(*M, ostream);
+    #else
+        llvm::WriteBitcodeToFile(M, ostream);
+    #endif
 
     return true;
 }
@@ -872,7 +877,11 @@ int main(int argc, char *argv[])
       || ((LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR >= 7)))
     llvm::cl::HideUnrelatedOptions(SlicingOpts);
 #endif
+# if ((LLVM_VERSION_MAJOR >= 6))
+    llvm::cl::SetVersionPrinter([](llvm::raw_ostream&){ printf("%s\n", GIT_VERSION); });
+#else
     llvm::cl::SetVersionPrinter([](){ printf("%s\n", GIT_VERSION); });
+#endif
     llvm::cl::ParseCommandLineOptions(argc, argv);
 
     uint32_t dump_opts = debug::PRINT_CFG | debug::PRINT_DD | debug::PRINT_CD;
