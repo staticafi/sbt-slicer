@@ -90,6 +90,8 @@ find_library(LIBRD RD PATH ${DG_LIB_PATH})
 find_library(LIBLLVMPTA LLVMpta PATH ${DG_LIB_PATH})
 find_library(LIBLLVMRD LLVMrd PATH ${DG_LIB_PATH})
 find_library(LIBLLVMDG LLVMdg PATH ${DG_LIB_PATH})
+find_library(LIBDGCD dgControlDependence PATH ${DG_LIB_PATH})
+find_library(LIBDGTR dgThreadRegions PATH ${DG_LIB_PATH})
 
 if (LIBDGANALYSIS)
 	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
@@ -133,8 +135,25 @@ else()
 	        "LLVMdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
+if (LIBDGCD)
+	message(STATUS "libdgControlDependence library found: ${LIBDGCD}")
+else()
+	message(FATAL_ERROR
+	        "libdgControlDependence library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+endif()
+
+if (LIBDGTR)
+	message(STATUS "libdgThreadRegions library found: ${LIBDGTR}")
+else()
+	message(FATAL_ERROR
+	        "libdgThreadRegions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+endif()
+
+
+
 set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
-	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG})
+	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG}
+	    ${LIBDGCD} ${LIBDGTR})
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")
