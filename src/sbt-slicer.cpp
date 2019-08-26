@@ -17,10 +17,6 @@
 #error "Unsupported version of LLVM"
 #endif
 
-#include "llvm-slicer.h"
-#include "llvm-slicer-opts.h"
-#include "llvm-slicer-utils.h"
-
 // ignore unused parameters in LLVM libraries
 #if (__clang__)
 #pragma clang diagnostic push
@@ -59,9 +55,22 @@
 #include <fstream>
 
 #include "dg/ADT/Queue.h"
+#include "dg/llvm/LLVMDependenceGraph.h"
 #include "dg/llvm/LLVMDG2Dot.h"
-#include "LLVMDGAssemblyAnnotationWriter.h"
+#include "dg/llvm/LLVMDGAssemblyAnnotationWriter.h"
+#include "dg/llvm/analysis/PointsTo/PointerAnalysis.h"
+
 #include "llvm-utils.h"
+
+#ifdef DG_INSOURCE_BUILD
+#include "tools/llvm-slicer.h"
+#include "tools/llvm-slicer-opts.h"
+#include "tools/llvm-slicer-utils.h"
+#else
+#include "dg/tools/llvm-slicer.h"
+#include "dg/tools/llvm-slicer-opts.h"
+#include "dg/tools/llvm-slicer-utils.h"
+#endif
 
 using namespace dg;
 

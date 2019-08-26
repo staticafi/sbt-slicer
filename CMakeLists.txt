@@ -74,8 +74,10 @@ endif()
 # DG_PATH is a path to an in-source build of dg
 if (DG_PATH)
 	message(STATUS "Setting-up paths to an in-source build of dg")
-	set(DG_INCLUDE_PATH ${DG_PATH}/include)
+	set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH})
 	set(DG_LIB_PATH ${DG_PATH}/lib)
+
+	add_definitions(-DDG_INSOURCE_BUILD)
 endif()
 
 message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
@@ -92,6 +94,7 @@ find_library(LIBLLVMRD LLVMrd PATH ${DG_LIB_PATH})
 find_library(LIBLLVMDG LLVMdg PATH ${DG_LIB_PATH})
 find_library(LIBDGCD dgControlDependence PATH ${DG_LIB_PATH})
 find_library(LIBDGTR dgThreadRegions PATH ${DG_LIB_PATH})
+find_library(LIBDGLLVMSLICER dgllvmslicer PATH ${DG_LIB_PATH})
 
 if (LIBDGANALYSIS)
 	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
@@ -149,11 +152,17 @@ else()
 	        "libdgThreadRegions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
+if (LIBDGLLVMSLICER)
+	message(STATUS "libdgllvmslicer library found: ${LIBDGLLVMSLICER}")
+else()
+	message(FATAL_ERROR
+	        "libdgllvmslicer library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+endif()
 
 
 set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
 	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG}
-	    ${LIBDGCD} ${LIBDGTR})
+	    ${LIBDGCD} ${LIBDGTR} ${LIBDGLLVMSLICER})
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")

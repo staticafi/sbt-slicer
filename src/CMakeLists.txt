@@ -5,7 +5,7 @@ add_custom_target(
 )
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(sbt-slicer sbt-slicer.cpp llvm-slicer-opts.cpp llvm-slicer-utils.cpp)
+add_executable(sbt-slicer sbt-slicer.cpp)
 target_link_libraries(sbt-slicer ${dg_libs} ${llvm_libs})
 add_dependencies(sbt-slicer gitversion)
 
