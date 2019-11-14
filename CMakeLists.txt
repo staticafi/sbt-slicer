@@ -84,14 +84,14 @@ message(STATUS "DG library paths: ${DG_LIB_PATH}")
 include_directories(${DG_INCLUDE_PATH})
 link_directories(${DG_LIB_PATH})
 
-find_library(LIBDGANALYSIS DGAnalysis PATH ${DG_LIB_PATH})
-find_library(LIBPTA PTA PATH ${DG_LIB_PATH})
-find_library(LIBRD RD PATH ${DG_LIB_PATH})
-find_library(LIBLLVMPTA LLVMpta PATH ${DG_LIB_PATH})
-find_library(LIBLLVMRD LLVMrd PATH ${DG_LIB_PATH})
-find_library(LIBLLVMDG LLVMdg PATH ${DG_LIB_PATH})
-find_library(LIBDGCD dgControlDependence PATH ${DG_LIB_PATH})
-find_library(LIBDGTR dgThreadRegions PATH ${DG_LIB_PATH})
+find_library(LIBDGANALYSIS dganalysis PATH ${DG_LIB_PATH})
+find_library(LIBPTA dgpta PATH ${DG_LIB_PATH})
+find_library(LIBRD dgdda PATH ${DG_LIB_PATH})
+find_library(LIBLLVMPTA dgllvmpta PATH ${DG_LIB_PATH})
+find_library(LIBLLVMRD dgllvmdda PATH ${DG_LIB_PATH})
+find_library(LIBLLVMDG dgllvmdg PATH ${DG_LIB_PATH})
+find_library(LIBDGCD dgllvmcda PATH ${DG_LIB_PATH})
+find_library(LIBDGTR dgllvmthreadregions PATH ${DG_LIB_PATH})
 
 if (LIBDGANALYSIS)
 	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
@@ -122,31 +122,31 @@ else()
 endif()
 
 if (LIBLLVMRD)
-	message(STATUS "LLVMrd library found: ${LIBLLVMRD}")
+	message(STATUS "dgllvmdda library found: ${LIBLLVMRD}")
 else()
 	message(FATAL_ERROR
-	        "LLVMrd library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+	        "dgllvmdda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBLLVMDG)
-	message(STATUS "LLVMdg library found: ${LIBLLVMDG}")
+	message(STATUS "dgllvmdg library found: ${LIBLLVMDG}")
 else()
 	message(FATAL_ERROR
-	        "LLVMdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+	        "dgllvmdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBDGCD)
-	message(STATUS "libdgControlDependence library found: ${LIBDGCD}")
+	message(STATUS "libdgllvmcda library found: ${LIBDGCD}")
 else()
 	message(FATAL_ERROR
-	        "libdgControlDependence library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+	        "libdgllvmcda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 if (LIBDGTR)
 	message(STATUS "libdgThreadRegions library found: ${LIBDGTR}")
 else()
 	message(FATAL_ERROR
-	        "libdgThreadRegions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+	        "libdgllvmthreadregions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
 

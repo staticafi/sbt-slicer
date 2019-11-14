@@ -66,8 +66,8 @@
 using namespace dg;
 
 using llvm::errs;
-using dg::analysis::LLVMPointerAnalysisOptions;
-using dg::analysis::LLVMReachingDefinitionsAnalysisOptions;
+using dg::LLVMPointerAnalysisOptions;
+using dg::LLVMDataDependenceAnalysisOptions;
 
 using AnnotationOptsT
     = dg::debug::LLVMDGAssemblyAnnotationWriter::AnnotationOptsT;
@@ -382,7 +382,7 @@ public:
         ";   * remove slicing criteria: '"
              + std::to_string(options.removeSlicingCriteria) + "'\n" +
         ";   * undefined are pure: '"
-             + std::to_string(options.dgOptions.RDAOptions.undefinedArePure) + "'\n" +
+             + std::to_string(options.dgOptions.DDAOptions.undefinedArePure) + "'\n" +
         ";   * pointer analysis: ";
         if (options.dgOptions.PTAOptions.analysisType
                 == LLVMPointerAnalysisOptions::AnalysisType::fi)
@@ -421,19 +421,12 @@ static bool usesTheVariable(LLVMDependenceGraph& dg,
                             const llvm::Value *v,
                             const std::string& var)
 {
-    auto ptrNode = dg.getPTA()->getPointsTo(v);
-    if (!ptrNode)
+    auto pts = dg.getPTA()->getLLVMPointsTo(v);
+    if (pts.hasUnknown())
         return true; // it may be a definition of the variable, we do not know
 
-    for (const auto& ptr : ptrNode->pointsTo) {
-        if (ptr.isUnknown())
-            return true; // it may be a definition of the variable, we do not know
-
-        auto value = ptr.target->getUserData<llvm::Value>();
-        if (!value)
-            continue;
-
-        auto name = valuesToVariables.find(value);
+    for (const auto& ptr : pts) {
+        auto name = valuesToVariables.find(ptr.value);
         if (name != valuesToVariables.end()) {
             if (name->second == var)
                 return true;
@@ -611,7 +604,7 @@ static void getLineCriteriaNodes(LLVMDependenceGraph& dg,
 
 std::set<LLVMNode *> _mapToNextInstr(const llvm::Module *M,
                                      LLVMPointerAnalysis *PTA,
-                                     LLVMReachingDefinitions *RD,
+                                     LLVMDataDependenceAnalysis *RD,
                                      const std::set<LLVMNode *>& callsites) {
     std::set<LLVMNode *> nodes;
 
@@ -639,8 +632,8 @@ std::set<LLVMNode *> _mapToNextInstr(const llvm::Module *M,
                 for (const auto& ptr : ptnode->pointsTo) {
                     if (!ptr.isValid() || ptr.isInvalidated())
                         continue;
-                    auto size = dg::analysis::getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
-                    auto rdnodes = RD->getLLVMReachingDefinitions(succ, ptr.target->getUserData<llvm::Value>(),
+                    auto size = dg::getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
+                    auto rdnodes = RD->getLLVMDataDependenceAnalysis(succ, ptr.target->getUserData<llvm::Value>(),
                                                                   ptr.offset, size);
                     const auto& funs = getConstructedFunctions();
                     for (auto val : rdnodes) {
@@ -937,7 +930,7 @@ int main(int argc, char *argv[])
         "klee_assume",
     };
 
-    Slicer slicer(M.get(), options);
+    ::Slicer slicer(M.get(), options);
     if (!slicer.buildDG()) {
         errs() << "ERROR: Failed building DG\n";
         return 1;
