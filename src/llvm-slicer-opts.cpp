@@ -145,9 +145,9 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         llvm::cl::desc("Choose reaching definitions analysis to use:"),
         llvm::cl::values(
             clEnumValN(LLVMDataDependenceAnalysisOptions::AnalysisType::rd,
-                       "dataflow", "Classical data-flow RDA"),
+                       "rd", "Classical data-flow DDA"),
             clEnumValN(LLVMDataDependenceAnalysisOptions::AnalysisType::ssa,
-                       "ssa", "MemorySSA-based RDA (default)")
+                       "ssa", "MemorySSA-based DDA (default)")
     #if LLVM_VERSION_MAJOR < 4
             , nullptr
     #endif
