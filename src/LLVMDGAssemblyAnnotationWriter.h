@@ -28,15 +28,15 @@
 #endif
 
 #include "dg/llvm/LLVMDependenceGraph.h"
-#include "dg/analysis/PointsTo/PointerAnalysis.h"
-#include "dg/analysis/ReachingDefinitions/ReachingDefinitions.h"
+#include "dg/llvm/PointerAnalysis/PointerAnalysis.h"
+#include "dg/llvm/DataDependence/DataDependence.h"
 
 namespace dg {
 namespace debug {
 
 class LLVMDGAssemblyAnnotationWriter : public llvm::AssemblyAnnotationWriter
 {
-    using LLVMReachingDefinitions = dg::analysis::rd::LLVMReachingDefinitions;
+    using LLVMDataDependenceAnalysis = dg::dda::LLVMDataDependenceAnalysis;
 public:
     enum AnnotationOptsT {
         // data dependencies
@@ -59,7 +59,7 @@ private:
 
     AnnotationOptsT opts;
     LLVMPointerAnalysis *PTA;
-    LLVMReachingDefinitions *RD;
+    LLVMDataDependenceAnalysis *RD;
     const std::set<LLVMNode *> *criteria;
     std::string module_comment{};
 
@@ -76,38 +76,26 @@ private:
             os << "\n";
     }
 
-    void printPointer(const analysis::pta::Pointer& ptr,
+    void printPointer(const LLVMPointer& ptr,
                       llvm::formatted_raw_ostream& os,
-                      const char *prefix = "PTR: ", bool nl = true)
-    {
+                      const char *prefix = "PTR: ", bool nl = true) {
         os << "  ; ";
         if (prefix)
             os << prefix;
 
-        if (!ptr.isUnknown()) {
-            if (ptr.isNull())
-                os << "null";
-            else if (ptr.isInvalidated())
-                os << "invalidated";
-            else {
-                const llvm::Value *val
-                    = ptr.target->getUserData<llvm::Value>();
-                printValue(val, os);
-            }
+        printValue(ptr.value, os);
 
-            os << " + ";
-            if (ptr.offset.isUnknown())
-                os << "UNKNOWN";
-            else
-                os << *ptr.offset;
-        } else
-            os << "unknown";
+        os << " + ";
+        if (ptr.offset.isUnknown())
+            os << "?";
+        else
+            os << *ptr.offset;
 
         if (nl)
             os << "\n";
     }
 
-    void printDefSite(const analysis::rd::DefSite& ds,
+    void printDefSite(const dda::DefSite& ds,
                       llvm::formatted_raw_ostream& os,
                       const char *prefix = nullptr, bool nl = false)
     {
@@ -123,12 +111,12 @@ private:
                 printValue(val, os);
 
             if (ds.offset.isUnknown())
-                os << " bytes |UNKNOWN";
+                os << " bytes |?";
             else
                 os << " bytes |" << *ds.offset;
 
             if (ds.len.isUnknown())
-                os << " - UNKNOWN|";
+                os << " - ?|";
             else
                 os << " - " <<  *ds.offset + *ds.len- 1 << "|";
         } else
@@ -219,10 +207,20 @@ private:
             if (PTA) {
                 llvm::Type *Ty = node->getKey()->getType();
                 if (Ty->isPointerTy() || Ty->isIntegerTy()) {
-                    analysis::pta::PSNode *ps = PTA->getPointsTo(node->getKey());
-                    if (ps) {
-                        for (const analysis::pta::Pointer& ptr : ps->pointsTo)
-                            printPointer(ptr, os);
+                    const auto& ps = PTA->getLLVMPointsTo(node->getKey());
+                    if (!ps.empty()) {
+                        for (const auto& llvmptr : ps) {
+                            printPointer(llvmptr, os);
+                        }
+                        if (ps.hasNull()) {
+                            os << "  ; null\n";
+                        }
+                        if (ps.hasUnknown()) {
+                            os << "  ; unknown\n";
+                        }
+                        if (ps.hasInvalidated()) {
+                            os << "  ; invalidated\n";
+                        }
                     }
                 }
             }
@@ -239,7 +237,7 @@ private:
 public:
     LLVMDGAssemblyAnnotationWriter(AnnotationOptsT o = ANNOTATE_SLICE,
                                    LLVMPointerAnalysis *pta = nullptr,
-                                   LLVMReachingDefinitions *rd = nullptr,
+                                   LLVMDataDependenceAnalysis *rd = nullptr,
                                    const std::set<LLVMNode *>* criteria = nullptr)
         : opts(o), PTA(pta), RD(rd), criteria(criteria)
     {
