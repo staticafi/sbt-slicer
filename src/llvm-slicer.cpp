@@ -381,7 +381,7 @@ public:
         ";   * remove slicing criteria: '"
              + std::to_string(options.removeSlicingCriteria) + "'\n" +
         ";   * undefined are pure: '"
-             + std::to_string(options.dgOptions.RDAOptions.undefinedArePure) + "'\n" +
+             + std::to_string(options.dgOptions.DDAOptions.undefinedArePure) + "'\n" +
         ";   * pointer analysis: ";
         if (options.dgOptions.PTAOptions.analysisType
                 == LLVMPointerAnalysisOptions::AnalysisType::fi)
@@ -405,7 +405,7 @@ public:
         auto annot
             = new dg::debug::LLVMDGAssemblyAnnotationWriter(annotationOptions,
                                                             dg->getPTA(),
-                                                            dg->getRDA(),
+                                                            dg->getDDA(),
                                                             criteria);
         annot->emitModuleComment(std::move(module_comment));
         llvm::Module *M = dg->getModule();
