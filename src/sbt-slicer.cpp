@@ -602,11 +602,12 @@ static void getLineCriteriaNodes(LLVMDependenceGraph& dg,
 #endif // LLVM > 3.6
 }
 
-std::set<LLVMNode *> _mapToNextInstr(const llvm::Module *M,
-                                     LLVMPointerAnalysis *PTA,
-                                     LLVMDataDependenceAnalysis *RD,
+std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
                                      const std::set<LLVMNode *>& callsites) {
     std::set<LLVMNode *> nodes;
+    const llvm::Module *M = dg.getModule();
+    LLVMPointerAnalysis *PTA = dg.getPTA();
+    LLVMDataDependenceAnalysis *DDA = dg.getDDA();
 
     for (LLVMNode *cs: callsites) {
         llvm::Instruction *I = llvm::dyn_cast<llvm::Instruction>(cs->getValue());
@@ -624,37 +625,44 @@ std::set<LLVMNode *> _mapToNextInstr(const llvm::Module *M,
         nodes.insert(node);
 
         // FIXME: do this only for marker configuration
-        /*
         if (llvm::isa<llvm::StoreInst>(succ)) {
-            // if the successor is Store, we want to take also the memory it writes to
-            // as slicing criteria (its reaching definitions, more precisely).
-            if (auto ptnode = PTA->getPointsTo(succ->getOperand(1))) {
-                for (const auto& ptr : ptnode->pointsTo) {
-                    if (!ptr.isValid() || ptr.isInvalidated())
+            // if the successor is Store, we want to take also the memory it
+            // writes to as slicing criteria (its reaching definitions, more
+            // precisely).
+            auto pts = PTA->getLLVMPointsTo(succ->getOperand(1));
+            if (pts.hasUnknown()) {
+                llvm::errs() << "WARNING: Store to unknown memory as "
+                                "slicing criterion (unknown memory ignored)\n";
+                llvm::errs() << *succ << "\n";
+            }
+            for (const auto& ptr : pts) {
+                auto size = dg::analysis::getAllocatedSize(succ->getOperand(0)->getType(),
+                                                           &M->getDataLayout());
+                auto defs = DDA->getLLVMDefinitions(succ, ptr.value, ptr.offset, size);
+                const auto& funs = getConstructedFunctions();
+                for (auto val : defs) {
+                    auto I = llvm::dyn_cast<llvm::Instruction>(val);
+                    if (!I) {
+                        auto G = llvm::dyn_cast<llvm::GlobalValue>(val);
+                        assert(G && "Whata!");
+                        auto GN = dg.getGlobalNode(G);
+                        assert(GN && "Do not have global node");
+                        nodes.insert(GN);
                         continue;
-                    auto size = dg::getAllocatedSize(succ->getOperand(0)->getType(), &M->getDataLayout());
-                    auto rdnodes = RD->getLLVMDataDependenceAnalysis(succ, ptr.target->getUserData<llvm::Value>(),
-                                                                  ptr.offset, size);
-                    const auto& funs = getConstructedFunctions();
-                    for (auto val : rdnodes) {
-                        auto I = llvm::dyn_cast<llvm::Instruction>(val);
-                        if (!I)
-                            continue;
-                        auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
-                        assert(it != funs.end());
-                        auto local_dg = it->second;
-                        assert(local_dg);
-
-                        LLVMNode *node = local_dg->getNode(val);
-                        assert(node && "DG does not have such node");
-                        nodes.insert(node);
                     }
+                    auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
+                    assert(it != funs.end());
+                    auto local_dg = it->second;
+                    assert(local_dg);
+
+                    LLVMNode *node = local_dg->getNode(val);
+                    assert(node && "DG does not have such node");
+                    nodes.insert(node);
                 }
             }
         }
 
         nodes.insert(node);
-    */
     }
 
     return nodes;
@@ -699,10 +707,7 @@ static std::set<LLVMNode *> getSlicingCriteriaNodes(LLVMDependenceGraph& dg,
         // get nodes for instructions that use
         // some of the arguments of the calls
         // FIXME: finish me
-        auto mappedNodes = _mapToNextInstr(dg.getModule(),
-                                           dg.getPTA(),
-                                           dg.getRDA(),
-                                           nodes);
+        auto mappedNodes = _mapToNextInstr(dg, nodes);
         nodes.swap(mappedNodes);
     }
 
