@@ -625,6 +625,7 @@ std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
         nodes.insert(node);
 
         // FIXME: do this only for marker configuration
+        // FIXME: what about memcpy/memset/... ??
         if (llvm::isa<llvm::StoreInst>(succ)) {
             // if the successor is Store, we want to take also the memory it
             // writes to as slicing criteria (its reaching definitions, more
@@ -640,6 +641,10 @@ std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
                                                            &M->getDataLayout());
                 auto defs = DDA->getLLVMDefinitions(succ, ptr.value, ptr.offset, size);
                 const auto& funs = getConstructedFunctions();
+                if (defs.empty()) {
+                    llvm::errs() << "WARNING: got no definitions for " << *ptr.value << "\n";
+                    llvm::errs() << "WARNING: at " << *succ << "\n";
+                }
                 for (auto val : defs) {
                     auto I = llvm::dyn_cast<llvm::Instruction>(val);
                     if (!I) {
@@ -668,9 +673,10 @@ std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
     return nodes;
 }
 
-static std::set<LLVMNode *> getSlicingCriteriaNodes(LLVMDependenceGraph& dg,
+static std::set<LLVMNode *> getSlicingCriteriaNodes(::Slicer& slicer,
                                                     const std::string& slicingCriteria)
 {
+    LLVMDependenceGraph& dg = slicer.getDG();
     std::set<LLVMNode *> nodes;
     std::vector<std::string> criteria = splitList(slicingCriteria);
     assert(!criteria.empty() && "Did not get slicing criteria");
@@ -702,7 +708,13 @@ static std::set<LLVMNode *> getSlicingCriteriaNodes(LLVMDependenceGraph& dg,
     if (!line_criteria.empty())
         getLineCriteriaNodes(dg, line_criteria, nodes);
 
-    if (criteria_are_next_instr) {
+    if (criteria_are_next_instr && !nodes.empty()) {
+        // if criteria are next instructions,
+        // we need to have data dependencies computed,
+        // because we search for dependencies of
+        // instructions that write to memory
+        slicer.computeDependencies();
+
         // instead of nodes for call-sites,
         // get nodes for instructions that use
         // some of the arguments of the calls
@@ -932,7 +944,7 @@ int main(int argc, char *argv[])
     // FIXME: do this optional only for SV-COMP
     options.additionalSlicingCriteria = {
         "__VERIFIER_assume",
-        "klee_assume",
+        "klee_assume"
     };
 
     ::Slicer slicer(M.get(), options);
@@ -944,7 +956,7 @@ int main(int argc, char *argv[])
     ModuleAnnotator annotator(options, &slicer.getDG(),
                               parseAnnotationOptions(annotationOpts));
 
-    auto criteria_nodes = getSlicingCriteriaNodes(slicer.getDG(),
+    auto criteria_nodes = getSlicingCriteriaNodes(slicer,
                                                   options.slicingCriteria);
     if (criteria_nodes.empty()) {
         llvm::errs() << "Did not find slicing criteria: '"

@@ -93,11 +93,12 @@ public:
     }
 
     // Explicitely compute dependencies after building the graph.
-    // This method can be used to compute dependencies without
-    // calling mark() afterwards (mark() calls this function).
-    // It must not be called before calling mark() in the future.
+    // mark() automatically calls this function.
+    // Once this function have been called, other calls are no-op.
     void computeDependencies() {
-        assert(!_computed_deps && "Already called computeDependencies()");
+        if (_computed_deps)
+            return;
+
         // must call buildDG() before this function
         assert(_dg && "Must build dg before computing dependencies");
 
@@ -105,9 +106,12 @@ public:
         _computed_deps = true;
 
         const auto& stats = _builder.getStatistics();
-        llvm::errs() << "INFO: CPU time of pointer analysis: " << double(stats.ptaTime) / CLOCKS_PER_SEC << " s\n";
-        llvm::errs() << "INFO: CPU time of reaching definitions analysis: " << double(stats.rdaTime) / CLOCKS_PER_SEC << " s\n";
-        llvm::errs() << "INFO: CPU time of control dependence analysis: " << double(stats.cdTime) / CLOCKS_PER_SEC << " s\n";
+        llvm::errs() << "INFO: CPU time of pointer analysis: "
+                     << double(stats.ptaTime) / CLOCKS_PER_SEC << " s\n";
+        llvm::errs() << "INFO: CPU time of data dependence analysis: "
+                     << double(stats.rdaTime) / CLOCKS_PER_SEC << " s\n";
+        llvm::errs() << "INFO: CPU time of control dependence analysis: "
+                     << double(stats.cdTime) / CLOCKS_PER_SEC << " s\n";
     }
 
     // Mark the nodes from the slice.
