@@ -117,6 +117,13 @@ llvm::cl::opt<bool> criteria_are_next_instr("criteria-are-next-instr",
                    "are all instructions that follow any call of 'crit'.\n"),
                    llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> memsafety("memsafety",
+    llvm::cl::desc("Assume that slicing criteria are potentially memory-unsafe "
+                   "instructions. This option implies criteria-are-next-instr, "
+                   "i.e., the slicing criteria are \"only marked\" "
+                   "by the given slicing criteria."),
+                   llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
+
 // mapping of AllocaInst to the names of C variables
 std::map<const llvm::Value *, std::string> valuesToVariables;
 
@@ -602,12 +609,63 @@ static void getLineCriteriaNodes(LLVMDependenceGraph& dg,
 #endif // LLVM > 3.6
 }
 
-std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
-                                     const std::set<LLVMNode *>& callsites) {
-    std::set<LLVMNode *> nodes;
+static void
+addDependenciesForWrites(llvm::Instruction *succ,
+                         LLVMDependenceGraph& dg,
+                         std::set<LLVMNode *>& nodes) {
+
     const llvm::Module *M = dg.getModule();
     LLVMPointerAnalysis *PTA = dg.getPTA();
     LLVMDataDependenceAnalysis *DDA = dg.getDDA();
+
+    // FIXME: do this only for marker configuration
+    // FIXME: what about memcpy/memset/... ??
+    if (!llvm::isa<llvm::StoreInst>(succ))
+        return;
+
+    // if the successor is Store, we want to take also the memory it
+    // writes to as slicing criteria (its reaching definitions, more
+    // precisely).
+    auto pts = PTA->getLLVMPointsTo(succ->getOperand(1));
+    if (pts.hasUnknown()) {
+        llvm::errs() << "WARNING: Store to unknown memory as "
+                        "slicing criterion (unknown memory ignored)\n";
+        llvm::errs() << *succ << "\n";
+    }
+    for (const auto& ptr : pts) {
+        auto size = dg::analysis::getAllocatedSize(succ->getOperand(0)->getType(),
+                                                   &M->getDataLayout());
+        auto defs = DDA->getLLVMDefinitions(succ, ptr.value, ptr.offset, size);
+        const auto& funs = getConstructedFunctions();
+        if (defs.empty()) {
+            llvm::errs() << "WARNING: got no definitions for " << *ptr.value << "\n";
+            llvm::errs() << "WARNING: at " << *succ << "\n";
+        }
+        for (auto val : defs) {
+            auto I = llvm::dyn_cast<llvm::Instruction>(val);
+            if (!I) {
+                auto G = llvm::dyn_cast<llvm::GlobalValue>(val);
+                assert(G && "Whata!");
+                auto GN = dg.getGlobalNode(G);
+                assert(GN && "Do not have global node");
+                nodes.insert(GN);
+                continue;
+            }
+            auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
+            assert(it != funs.end());
+            auto local_dg = it->second;
+            assert(local_dg);
+
+            LLVMNode *node = local_dg->getNode(val);
+            assert(node && "DG does not have such node");
+            nodes.insert(node);
+        }
+    }
+}
+
+std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
+                                     const std::set<LLVMNode *>& callsites) {
+    std::set<LLVMNode *> nodes;
 
     for (LLVMNode *cs: callsites) {
         llvm::Instruction *I = llvm::dyn_cast<llvm::Instruction>(cs->getValue());
@@ -624,50 +682,9 @@ std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
         assert(node && "DG does not have such node");
         nodes.insert(node);
 
-        // FIXME: do this only for marker configuration
-        // FIXME: what about memcpy/memset/... ??
-        if (llvm::isa<llvm::StoreInst>(succ)) {
-            // if the successor is Store, we want to take also the memory it
-            // writes to as slicing criteria (its reaching definitions, more
-            // precisely).
-            auto pts = PTA->getLLVMPointsTo(succ->getOperand(1));
-            if (pts.hasUnknown()) {
-                llvm::errs() << "WARNING: Store to unknown memory as "
-                                "slicing criterion (unknown memory ignored)\n";
-                llvm::errs() << *succ << "\n";
-            }
-            for (const auto& ptr : pts) {
-                auto size = dg::analysis::getAllocatedSize(succ->getOperand(0)->getType(),
-                                                           &M->getDataLayout());
-                auto defs = DDA->getLLVMDefinitions(succ, ptr.value, ptr.offset, size);
-                const auto& funs = getConstructedFunctions();
-                if (defs.empty()) {
-                    llvm::errs() << "WARNING: got no definitions for " << *ptr.value << "\n";
-                    llvm::errs() << "WARNING: at " << *succ << "\n";
-                }
-                for (auto val : defs) {
-                    auto I = llvm::dyn_cast<llvm::Instruction>(val);
-                    if (!I) {
-                        auto G = llvm::dyn_cast<llvm::GlobalValue>(val);
-                        assert(G && "Whata!");
-                        auto GN = dg.getGlobalNode(G);
-                        assert(GN && "Do not have global node");
-                        nodes.insert(GN);
-                        continue;
-                    }
-                    auto it = funs.find(const_cast<llvm::Function *>(I->getParent()->getParent()));
-                    assert(it != funs.end());
-                    auto local_dg = it->second;
-                    assert(local_dg);
-
-                    LLVMNode *node = local_dg->getNode(val);
-                    assert(node && "DG does not have such node");
-                    nodes.insert(node);
-                }
-            }
+        if (memsafety) {
+            addDependenciesForWrites(succ, dg, nodes);
         }
-
-        nodes.insert(node);
     }
 
     return nodes;
@@ -709,16 +726,17 @@ static std::set<LLVMNode *> getSlicingCriteriaNodes(::Slicer& slicer,
         getLineCriteriaNodes(dg, line_criteria, nodes);
 
     if (criteria_are_next_instr && !nodes.empty()) {
-        // if criteria are next instructions,
+        // if criteria are next instructions for memsafety,
         // we need to have data dependencies computed,
         // because we search for dependencies of
         // instructions that write to memory
-        slicer.computeDependencies();
+        if (memsafety) {
+            slicer.computeDependencies();
+        }
 
         // instead of nodes for call-sites,
         // get nodes for instructions that use
         // some of the arguments of the calls
-        // FIXME: finish me
         auto mappedNodes = _mapToNextInstr(dg, nodes);
         nodes.swap(mappedNodes);
     }
@@ -905,6 +923,9 @@ int main(int argc, char *argv[])
     setupStackTraceOnError(argc, argv);
 
     SlicerOptions options = parseSlicerOptions(argc, argv);
+
+    if (memsafety)
+        criteria_are_next_instr = true;
 
     // dump_dg_only implies dumg_dg
     if (dump_dg_only)
