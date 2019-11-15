@@ -813,7 +813,6 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
                                const std::set<std::string>& secondaryControlCriteria,
                                const std::set<std::string>& secondaryDataCriteria,
                                LLVMNode *nd) {
-    llvm::errs() << "CHECK: " << *nd->getValue() << "\n";
     if (isCallTo(nd, secondaryControlCriteria)) {
         llvm::errs() << "Found (control) secondary slicing criterion: "
                      << *nd->getValue() << "\n";
@@ -1008,6 +1007,8 @@ int main(int argc, char *argv[])
         options.secondarySlicingCriteria += ","
             "llvm.lifetime.start.p0i8(),"
             "llvm.lifetime.end.p0i8(),"
+            "__VERIFIER_scope_enter(),"
+            "__VERIFIER_scope_leave(),"
             "free()";
     }
 
