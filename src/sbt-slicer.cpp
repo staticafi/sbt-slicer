@@ -609,6 +609,7 @@ static void getLineCriteriaNodes(LLVMDependenceGraph& dg,
 #endif // LLVM > 3.6
 }
 
+/*
 static void
 addDependenciesForWrites(llvm::Instruction *succ,
                          LLVMDependenceGraph& dg,
@@ -662,8 +663,9 @@ addDependenciesForWrites(llvm::Instruction *succ,
         }
     }
 }
+*/
 
-std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
+std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph&,
                                      const std::set<LLVMNode *>& callsites) {
     std::set<LLVMNode *> nodes;
 
@@ -682,9 +684,10 @@ std::set<LLVMNode *> _mapToNextInstr(LLVMDependenceGraph& dg,
         assert(node && "DG does not have such node");
         nodes.insert(node);
 
-        if (memsafety) {
-            addDependenciesForWrites(succ, dg, nodes);
-        }
+       // We do that now using the secondar slicing criteria
+       //if (memsafety) {
+       //    addDependenciesForWrites(succ, dg, nodes);
+       //}
     }
 
     return nodes;
@@ -730,9 +733,10 @@ static std::set<LLVMNode *> getSlicingCriteriaNodes(::Slicer& slicer,
         // we need to have data dependencies computed,
         // because we search for dependencies of
         // instructions that write to memory
-        if (memsafety) {
-            slicer.computeDependencies();
-        }
+        // XXX: we use the secondary slicing criteria now
+        //if (memsafety) {
+        //    slicer.computeDependencies();
+        //}
 
         // instead of nodes for call-sites,
         // get nodes for instructions that use
@@ -804,16 +808,17 @@ static bool isCallTo(LLVMNode *callNode, const std::set<std::string>& names)
 
 static inline
 void checkSecondarySlicingCrit(::Slicer& slicer,
-                               std::set<LLVMNode *>& criteria_nodes,
+                               const std::set<LLVMNode *>& criteria_nodes,
+                               std::set<LLVMNode *>& result,
                                const std::set<std::string>& secondaryControlCriteria,
                                const std::set<std::string>& secondaryDataCriteria,
                                LLVMNode *nd) {
+    llvm::errs() << "CHECK: " << *nd->getValue() << "\n";
     if (isCallTo(nd, secondaryControlCriteria)) {
         llvm::errs() << "Found (control) secondary slicing criterion: "
                      << *nd->getValue() << "\n";
-        criteria_nodes.insert(nd);
+        result.insert(nd);
     } if (isCallTo(nd, secondaryDataCriteria)) {
-        llvm::errs() << "Checking " <<  *nd->getValue() << "\n";
         auto *PTA = slicer.getDG().getPTA();
         // check that the used memory overlap
         auto ndmem = PTA->getAccessedMemory(
@@ -826,12 +831,12 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
                 llvm::errs() << "Found possible data secondary slicing criterion "
                              << " (access of unknown memory): "
                              << *nd->getValue() << "\n";
-                criteria_nodes.insert(nd);
+                result.insert(nd);
                 break;
             } else if (ndmem.second.overlaps(critmem.second)) {
                 llvm::errs() << "Found data secondary slicing criterion: "
                              << *nd->getValue() << "\n";
-                criteria_nodes.insert(nd);
+                result.insert(nd);
                 break;
             }
         }
@@ -840,68 +845,84 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
 
 
 // mark nodes that are going to be in the slice
+// XXX: we gather not secondary SC that are on a path from
+// entry to some criterion but that are on some path to
+// some criterion, i.e. if there's unreachable code,
+// this may be an overapproximation.
 bool findSecondarySlicingCriteria(::Slicer& slicer,
                                   std::set<LLVMNode *>& criteria_nodes,
                                   const std::set<std::string>& secondaryControlCriteria,
                                   const std::set<std::string>& secondaryDataCriteria)
 {
     // FIXME: do this more efficiently (and use the new DFS class)
-    std::set<LLVMBBlock *> visited;
-    ADT::QueueLIFO<LLVMBBlock *> queue;
-    auto tmp = criteria_nodes;
-    for (auto&c : tmp) {
-        // the criteria may be a global variable and in that
-        // case it has no basic block (but also no predecessors,
-        // so we can skip it)
+    std::set<LLVMNode *> visited;
+    ADT::QueueLIFO<LLVMNode *> queue;
+    auto result = criteria_nodes;
+    for (auto&c : criteria_nodes) {
+        // the criteria may be a global variable and in that case it has no
+        // basic block (but also no predecessors, so we can skip it)
         if (!c->getBBlock())
             continue;
 
-        queue.push(c->getBBlock());
-        visited.insert(c->getBBlock());
+        queue.push(c);
+        visited.insert(c);
+    }
 
-        for (auto nd : c->getBBlock()->getNodes()) {
-            if (nd == c)
+    while (!queue.empty()) {
+        auto cur = queue.pop();
+        auto bblock = cur->getBBlock();
+        assert(bblock && "No BBlock for a node");
+
+        // we search the graph backward, but the blocks forwards
+        for (auto nd : bblock->getNodes()) {
+            // cur is either slicing criterion, call inst or a terminator
+            // instruction that may not be a slicing criterion,
+            // so we can omit the call of checkSecondarySlicingCrit
+            // on these and at the same time we want to finish
+            // here, so that we do not add instructions that
+            // are not on an (interprocedural) path to some criterion
+            // (without this check, we could add e.g. nodes
+            // that follow some call but that are not on a path
+            // to some criterion.
+            if (nd == cur)
                 break;
 
+            if (!visited.insert(nd).second)
+                break; // visited this node
+
+            checkSecondarySlicingCrit(slicer, criteria_nodes, result,
+                                      secondaryControlCriteria,
+                                      secondaryDataCriteria, nd);
+
+            // search interprocedurally
             if (nd->hasSubgraphs()) {
-                // we search interprocedurally
                 for (auto dg : nd->getSubgraphs()) {
-                    auto exit = dg->getExitBB();
-                    assert(exit && "No exit BB in a graph");
+                    auto exit = dg->getExit();
+                    assert(exit && "No exit in a graph");
                     if (visited.insert(exit).second)
                         queue.push(exit);
                 }
             }
 
-            checkSecondarySlicingCrit(slicer, criteria_nodes,
-                                      secondaryControlCriteria,
-                                      secondaryDataCriteria, nd);
-        }
-    }
-
-    // get basic blocks
-    while (!queue.empty()) {
-        auto cur = queue.pop();
-        for (auto pred : cur->predecessors()) {
-            for (auto nd : pred->getNodes()) {
-                if (nd->hasSubgraphs()) {
-                    // we search interprocedurally
-                    for (auto dg : nd->getSubgraphs()) {
-                        auto exit = dg->getExitBB();
-                        assert(exit && "No exit BB in a graph");
-                        if (visited.insert(exit).second)
-                            queue.push(exit);
-                    }
+            // last block in the function,
+            // continue into the called functions
+            if (bblock->predecessors().empty()) {
+                auto *local_dg = cur->getDG();
+                for (auto *caller : local_dg->getCallers()) {
+                    if (visited.insert(caller).second)
+                        queue.push(caller);
                 }
-
-                checkSecondarySlicingCrit(slicer, criteria_nodes,
-                                          secondaryControlCriteria,
-                                          secondaryDataCriteria, nd);
+            } else {
+                for (auto pred : bblock->predecessors()) {
+                   auto term = pred->getLastNode();
+                   if (visited.insert(term).second)
+                        queue.push(term);
+                }
             }
-            if (visited.insert(pred).second)
-                queue.push(pred);
         }
     }
+
+    criteria_nodes.swap(result);
 
     return true;
 }
@@ -973,8 +994,22 @@ int main(int argc, char *argv[])
 
     SlicerOptions options = parseSlicerOptions(argc, argv);
 
-    if (memsafety)
+    if (!options.secondarySlicingCriteria.empty())
+        options.secondarySlicingCriteria += ",";
+
+    // we do not want to slice away any assumptions
+    // about the code
+    // XXX: do this optional only for TEST/SV-COMP?
+    options.secondarySlicingCriteria +=
+        "__VERIFIER_assume,klee_assume";
+
+    if (memsafety) {
         criteria_are_next_instr = true;
+        options.secondarySlicingCriteria += ","
+            "llvm.lifetime.start.p0i8(),"
+            "llvm.lifetime.end.p0i8(),"
+            "free()";
+    }
 
     // dump_dg_only implies dumg_dg
     if (dump_dg_only)
@@ -1008,14 +1043,6 @@ int main(int argc, char *argv[])
     /// ---------------
     // slice the code
     /// ---------------
-
-    // we do not want to slice away any assumptions
-    // about the code
-    // FIXME: do this optional only for SV-COMP
-    options.additionalSlicingCriteria = {
-        "__VERIFIER_assume",
-        "klee_assume"
-    };
 
     ::Slicer slicer(M.get(), options);
     if (!slicer.buildDG()) {
