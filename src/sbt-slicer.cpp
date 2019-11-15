@@ -802,9 +802,46 @@ static bool isCallTo(LLVMNode *callNode, const std::set<std::string>& names)
     return false;
 }
 
+static inline
+void checkSecondarySlicingCrit(::Slicer& slicer,
+                               std::set<LLVMNode *>& criteria_nodes,
+                               const std::set<std::string>& secondaryControlCriteria,
+                               const std::set<std::string>& secondaryDataCriteria,
+                               LLVMNode *nd) {
+    if (isCallTo(nd, secondaryControlCriteria)) {
+        llvm::errs() << "Found (control) secondary slicing criterion: "
+                     << *nd->getValue() << "\n";
+        criteria_nodes.insert(nd);
+    } if (isCallTo(nd, secondaryDataCriteria)) {
+        llvm::errs() << "Checking " <<  *nd->getValue() << "\n";
+        auto *PTA = slicer.getDG().getPTA();
+        // check that the used memory overlap
+        auto ndmem = PTA->getAccessedMemory(
+                            llvm::cast<llvm::Instruction>(nd->getValue()));
+
+        for (auto *crit : criteria_nodes) {
+            auto critmem = PTA->getAccessedMemory(
+                            llvm::cast<llvm::Instruction>(crit->getValue()));
+            if (critmem.first || ndmem.first) {
+                llvm::errs() << "Found possible data secondary slicing criterion "
+                             << " (access of unknown memory): "
+                             << *nd->getValue() << "\n";
+                criteria_nodes.insert(nd);
+                break;
+            } else if (ndmem.second.overlaps(critmem.second)) {
+                llvm::errs() << "Found data secondary slicing criterion: "
+                             << *nd->getValue() << "\n";
+                criteria_nodes.insert(nd);
+                break;
+            }
+        }
+    }
+}
+
+
 // mark nodes that are going to be in the slice
-static
-bool findSecondarySlicingCriteria(std::set<LLVMNode *>& criteria_nodes,
+bool findSecondarySlicingCriteria(::Slicer& slicer,
+                                  std::set<LLVMNode *>& criteria_nodes,
                                   const std::set<std::string>& secondaryControlCriteria,
                                   const std::set<std::string>& secondaryDataCriteria)
 {
@@ -825,14 +862,20 @@ bool findSecondarySlicingCriteria(std::set<LLVMNode *>& criteria_nodes,
         for (auto nd : c->getBBlock()->getNodes()) {
             if (nd == c)
                 break;
-            if (isCallTo(nd, secondaryControlCriteria))
-                criteria_nodes.insert(nd);
-            if (isCallTo(nd, secondaryDataCriteria)) {
-                llvm::errs() << "WARNING: Found possible data secondary slicing criterion: "
-                            << *nd->getValue() << "\n";
-                llvm::errs() << "This is not fully supported, so adding to be sound\n";
-                criteria_nodes.insert(nd);
+
+            if (nd->hasSubgraphs()) {
+                // we search interprocedurally
+                for (auto dg : nd->getSubgraphs()) {
+                    auto exit = dg->getExitBB();
+                    assert(exit && "No exit BB in a graph");
+                    if (visited.insert(exit).second)
+                        queue.push(exit);
+                }
             }
+
+            checkSecondarySlicingCrit(slicer, criteria_nodes,
+                                      secondaryControlCriteria,
+                                      secondaryDataCriteria, nd);
         }
     }
 
@@ -841,14 +884,19 @@ bool findSecondarySlicingCriteria(std::set<LLVMNode *>& criteria_nodes,
         auto cur = queue.pop();
         for (auto pred : cur->predecessors()) {
             for (auto nd : pred->getNodes()) {
-                if (isCallTo(nd, secondaryControlCriteria))
-                    criteria_nodes.insert(nd);
-                if (isCallTo(nd, secondaryDataCriteria)) {
-                    llvm::errs() << "WARNING: Found possible data secondary slicing criterion: "
-                                << *nd->getValue() << "\n";
-                    llvm::errs() << "This is not fully supported, so adding to be sound\n";
-                    criteria_nodes.insert(nd);
+                if (nd->hasSubgraphs()) {
+                    // we search interprocedurally
+                    for (auto dg : nd->getSubgraphs()) {
+                        auto exit = dg->getExitBB();
+                        assert(exit && "No exit BB in a graph");
+                        if (visited.insert(exit).second)
+                            queue.push(exit);
+                    }
                 }
+
+                checkSecondarySlicingCrit(slicer, criteria_nodes,
+                                          secondaryControlCriteria,
+                                          secondaryDataCriteria, nd);
             }
             if (visited.insert(pred).second)
                 queue.push(pred);
@@ -857,6 +905,7 @@ bool findSecondarySlicingCriteria(std::set<LLVMNode *>& criteria_nodes,
 
     return true;
 }
+
 
 static AnnotationOptsT parseAnnotationOptions(const std::string& annot)
 {
@@ -1000,7 +1049,7 @@ int main(int argc, char *argv[])
     const auto& secondaryDataCriteria = secondaryCriteria.second;
 
     // mark nodes that are going to be in the slice
-    if (!findSecondarySlicingCriteria(criteria_nodes,
+    if (!findSecondarySlicingCriteria(slicer, criteria_nodes,
                                       secondaryControlCriteria,
                                       secondaryDataCriteria)) {
         llvm::errs() << "Finding dependent nodes failed\n";
