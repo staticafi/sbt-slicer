@@ -1080,8 +1080,15 @@ int main(int argc, char *argv[])
     if (!findSecondarySlicingCriteria(slicer, criteria_nodes,
                                       secondaryControlCriteria,
                                       secondaryDataCriteria)) {
-        llvm::errs() << "Finding dependent nodes failed\n";
+        llvm::errs() << "Finding conditional slicing criteria nodes failed\n";
         return 1;
+    }
+
+    if (options.dgOptions.threads) {
+        // FIXME: searching for conditional SC does not work for
+        // threaded programs, so we must add it as extra SC
+        options.additionalSlicingCriteria.push_back("__VERIFIER_assume");
+        options.additionalSlicingCriteria.push_back("__VERIFIER_exit");
     }
 
     // mark nodes that are going to be in the slice
