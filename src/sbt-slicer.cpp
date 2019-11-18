@@ -939,10 +939,10 @@ static AnnotationOptsT parseAnnotationOptions(const std::string& annot)
             opts |= AnnotationOptsT::ANNOTATE_DD;
         else if (opt == "cd")
             opts |= AnnotationOptsT::ANNOTATE_CD;
-        else if (opt == "rd")
-            opts |= AnnotationOptsT::ANNOTATE_RD;
         else if (opt == "pta")
             opts |= AnnotationOptsT::ANNOTATE_PTR;
+        else if (opt == "memacc")
+            opts |= AnnotationOptsT::ANNOTATE_MEMORYACC;
         else if (opt == "slice" || opt == "sl" || opt == "slicer")
             opts |= AnnotationOptsT::ANNOTATE_SLICE;
     }
