@@ -48,18 +48,21 @@ public:
         // points-to information
         ANNOTATE_PTR                = 1 << 3,
         // reaching definitions
-        ANNOTATE_RD                 = 1 << 4,
+        ANNOTATE_DU                 = 1 << 4,
         // post-dominators
         ANNOTATE_POSTDOM            = 1 << 5,
         // comment out nodes that will be sliced
         ANNOTATE_SLICE              = 1 << 6,
+        // annotate memory accesses (like ANNOTATE_PTR,
+        // but with byte intervals)
+        ANNOTATE_MEMORYACC          = 1 << 7,
     };
 
 private:
 
     AnnotationOptsT opts;
     LLVMPointerAnalysis *PTA;
-    LLVMDataDependenceAnalysis *RD;
+    LLVMDataDependenceAnalysis *DDA;
     const std::set<LLVMNode *> *criteria;
     std::string module_comment{};
 
@@ -127,16 +130,43 @@ private:
 
     }
 
+    void printMemRegion(const LLVMMemoryRegion& R,
+                        llvm::formatted_raw_ostream& os,
+                        const char *prefix = nullptr,
+                        bool nl = false) {
+        os << "  ; ";
+        if (prefix)
+            os << prefix;
+
+        assert(R.pointer.value);
+        printValue(R.pointer.value, os);
+
+        if (R.pointer.offset.isUnknown())
+            os << " bytes [?";
+        else
+            os << " bytes [" << *R.pointer.offset;
+
+        if (R.len.isUnknown())
+            os << " - ?]";
+        else
+            os << " - " <<  *R.pointer.offset + *R.len - 1 << "]";
+
+        if (nl)
+            os << "\n";
+    }
+
     void emitNodeAnnotations(LLVMNode *node, llvm::formatted_raw_ostream& os)
     {
-        if (opts & ANNOTATE_RD) {
-            assert(RD && "No reaching definitions analysis");
+        using namespace llvm;
+
+        if (opts & ANNOTATE_DU) {
+            assert(DDA && "No reaching definitions analysis");
             /*
 
             // FIXME
 
             LLVMDGParameters *params = node->getParameters();
-            // don't dump params when we use new analyses (RD is not null)
+            // don't dump params when we use new analyses (DDA is not null)
             // because there we don't add definitions with new analyses
             if (params) {
                 for (auto& it : *params) {
@@ -226,6 +256,20 @@ private:
             }
         }
 
+        if (PTA && (opts & ANNOTATE_MEMORYACC)) {
+            if (auto I = dyn_cast<Instruction>(node->getValue())) {
+                if (I->mayReadOrWriteMemory()) {
+                    auto regions = PTA->getAccessedMemory(I);
+                    if (regions.first) {
+                            os << "  ; unknown region\n";
+                    }
+                    for (const auto& mem : regions.second) {
+                        printMemRegion(mem, os, nullptr, true);
+                    }
+                }
+            }
+        }
+
         if (opts & ANNOTATE_SLICE) {
             if (criteria && criteria->count(node) > 0)
                 os << "  ; SLICING CRITERION\n";
@@ -237,12 +281,12 @@ private:
 public:
     LLVMDGAssemblyAnnotationWriter(AnnotationOptsT o = ANNOTATE_SLICE,
                                    LLVMPointerAnalysis *pta = nullptr,
-                                   LLVMDataDependenceAnalysis *rd = nullptr,
+                                   LLVMDataDependenceAnalysis *dda = nullptr,
                                    const std::set<LLVMNode *>* criteria = nullptr)
-        : opts(o), PTA(pta), RD(rd), criteria(criteria)
+        : opts(o), PTA(pta), DDA(dda), criteria(criteria)
     {
         assert(!(opts & ANNOTATE_PTR) || PTA);
-        assert(!(opts & ANNOTATE_RD) || RD);
+        assert(!(opts & ANNOTATE_DU) || DDA);
     }
 
     void emitModuleComment(const std::string& comment) {
