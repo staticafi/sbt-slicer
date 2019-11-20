@@ -840,11 +840,23 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
                 break;
             }
         }
-    } else if ((slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD)
-                && isCallTo(nd, recursiveFuns)) {
-        llvm::errs() << "Found (ntscd) conditional SC: "
-                     << *nd->getValue() << "\n";
-        result.insert(nd);
+    } else if (slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD) {
+        if (isCallTo(nd, recursiveFuns)) {
+            llvm::errs() << "Found (ntscd) conditional SC: "
+                         << *nd->getValue() << "\n";
+            result.insert(nd);
+        }
+        if (auto param = nd->getParameters()) {
+            if (auto noret = param->getNoReturn()) {
+                for (auto I = noret->rev_control_begin(),
+                          E = noret->rev_control_end();
+                          I != E; ++I) {
+                    llvm::errs() << "Found (ntscd-noret) conditional SC: "
+                                 << *(*I)->getValue() << "\n";
+                    result.insert(nd);
+                }
+            }
+        }
     }
 }
 
@@ -859,7 +871,9 @@ getRecursiveFuns(::Slicer& slicer) {
     auto& cg = PTA->getPTA()->getPG()->getCallGraph();
 
     auto *entrynd = PTA->getPointsToNode(slicer.getModule()->getFunction("main"));
-    assert(entrynd && "PTA has no node for entry to main function");
+    if (!entrynd) // no (defined) functions are called
+        return recursiveFuns;
+
     auto *entry = cg.get(entrynd);
     assert(entry && "CallGraph has no node for the main function");
 
