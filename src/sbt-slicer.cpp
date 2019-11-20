@@ -812,9 +812,10 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
                                std::set<LLVMNode *>& result,
                                const std::set<std::string>& secondaryControlCriteria,
                                const std::set<std::string>& secondaryDataCriteria,
-                               LLVMNode *nd) {
+                               LLVMNode *nd,
+                               const std::set<std::string>& recursiveFuns) {
     if (isCallTo(nd, secondaryControlCriteria)) {
-        llvm::errs() << "Found (control) secondary slicing criterion: "
+        llvm::errs() << "Found (control) conditional SC: "
                      << *nd->getValue() << "\n";
         result.insert(nd);
     } if (isCallTo(nd, secondaryDataCriteria)) {
@@ -827,21 +828,56 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
             auto critmem = PTA->getAccessedMemory(
                             llvm::cast<llvm::Instruction>(crit->getValue()));
             if (critmem.first || ndmem.first) {
-                llvm::errs() << "Found possible data secondary slicing criterion "
+                llvm::errs() << "Found possible data conditional SC"
                              << " (access of unknown memory): "
                              << *nd->getValue() << "\n";
                 result.insert(nd);
                 break;
             } else if (ndmem.second.overlaps(critmem.second)) {
-                llvm::errs() << "Found data secondary slicing criterion: "
+                llvm::errs() << "Found data conditional SC: "
                              << *nd->getValue() << "\n";
                 result.insert(nd);
                 break;
             }
         }
+    } else if ((slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD)
+                && isCallTo(nd, recursiveFuns)) {
+        llvm::errs() << "Found (ntscd) conditional SC: "
+                     << *nd->getValue() << "\n";
+        result.insert(nd);
     }
 }
 
+static std::set<std::string>
+getRecursiveFuns(::Slicer& slicer) {
+    std::set<std::string> recursiveFuns;
+
+    assert(!slicer.getOptions().dgOptions.PTAOptions.isSVF()
+            && "Unsupported PTA");
+
+    auto *PTA = static_cast<DGLLVMPointerAnalysis*>(slicer.getDG().getPTA());
+    auto& cg = PTA->getPTA()->getPG()->getCallGraph();
+
+    auto *entrynd = PTA->getPointsToNode(slicer.getModule()->getFunction("main"));
+    assert(entrynd && "PTA has no node for entry to main function");
+    auto *entry = cg.get(entrynd);
+    assert(entry && "CallGraph has no node for the main function");
+
+    auto SCCs = dg::SCC<dg::GenericCallGraph<dg::PSNode *>::FuncNode>().compute(entry);
+    for (auto& component : SCCs) {
+        if (component.size() > 1 ||
+            (component.size() == 1 && component[0]->calls(component[0]))) {
+
+            for (auto *funcnd : component) {
+                auto *fun = funcnd->getValue()->getUserData<llvm::Function>();
+                llvm::errs() << "Recursive fun: " << fun->getName() << "\n";
+                recursiveFuns.insert(fun->getName().str());
+            }
+        }
+    }
+
+   return recursiveFuns;
+}
 
 // mark nodes that are going to be in the slice
 // XXX: we gather not secondary SC that are on a path from
@@ -853,6 +889,11 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
                                   const std::set<std::string>& secondaryControlCriteria,
                                   const std::set<std::string>& secondaryDataCriteria)
 {
+    std::set<std::string> recursiveFuns;
+    if (slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD) {
+        recursiveFuns = std::move(getRecursiveFuns(slicer));
+    }
+
     // FIXME: do this more efficiently (and use the new DFS class)
     std::set<LLVMNode *> visited;
     ADT::QueueLIFO<LLVMNode *> queue;
@@ -877,39 +918,25 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
         if (bblock->predecessors().empty()) {
             auto *local_dg = cur->getDG();
             for (auto *caller : local_dg->getCallers()) {
-                if (visited.insert(caller).second)
+                if (visited.insert(caller).second) {
                     queue.push(caller);
+                }
             }
         } else {
             for (auto pred : bblock->predecessors()) {
                auto term = pred->getLastNode();
-               if (visited.insert(term).second)
+               if (visited.insert(term).second) {
                     queue.push(term);
+               }
             }
         }
 
         // we search the graph backward, but the blocks forwards
         for (auto nd : bblock->getNodes()) {
-            // cur is either slicing criterion, call inst or a terminator
-            // instruction that may not be a slicing criterion,
-            // so we can omit the call of checkSecondarySlicingCrit
-            // on these and at the same time we want to finish
-            // here, so that we do not add instructions that
-            // are not on an (interprocedural) path to some criterion
-            // (without this check, we could add e.g. nodes
-            // that follow some call but that are not on a path
-            // to some criterion.
-            // XXX: must queue the BBlock predecessors first because
-            // if the block has only one node, we will bail out here
-            if (nd == cur)
-                break;
-
-            if (!visited.insert(nd).second)
-                break; // visited this node
-
             checkSecondarySlicingCrit(slicer, criteria_nodes, result,
                                       secondaryControlCriteria,
-                                      secondaryDataCriteria, nd);
+                                      secondaryDataCriteria, nd,
+                                      recursiveFuns);
 
             // search interprocedurally
             if (nd->hasSubgraphs()) {
@@ -920,6 +947,19 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
                         queue.push(exit);
                 }
             }
+            // bail out here, so that we do not add instructions that
+            // are not on an (interprocedural) path to some criterion
+            // (without this check, we could add e.g. nodes
+            // that follow some call but that are not on a path
+            // to some criterion.
+            // This node can also by a CSC, so we must perform this
+            // check after call to checkSecondarySlicingCrit
+            if (nd == cur)
+                break;
+
+            // because of calls and returns we may already visited this node
+            if (!visited.insert(nd).second)
+                break; // visited this node
         }
     }
 
@@ -987,7 +1027,6 @@ void setupStackTraceOnError(int argc, char *argv[])
 #else
 void setupStackTraceOnError(int, char **) {}
 #endif // not USING_SANITIZERS
-
 
 int main(int argc, char *argv[])
 {
