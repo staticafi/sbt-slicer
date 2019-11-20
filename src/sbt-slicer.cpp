@@ -872,6 +872,22 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
         auto bblock = cur->getBBlock();
         assert(bblock && "No BBlock for a node");
 
+        // last block in the function,
+        // continue into the called functions
+        if (bblock->predecessors().empty()) {
+            auto *local_dg = cur->getDG();
+            for (auto *caller : local_dg->getCallers()) {
+                if (visited.insert(caller).second)
+                    queue.push(caller);
+            }
+        } else {
+            for (auto pred : bblock->predecessors()) {
+               auto term = pred->getLastNode();
+               if (visited.insert(term).second)
+                    queue.push(term);
+            }
+        }
+
         // we search the graph backward, but the blocks forwards
         for (auto nd : bblock->getNodes()) {
             // cur is either slicing criterion, call inst or a terminator
@@ -883,6 +899,8 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
             // (without this check, we could add e.g. nodes
             // that follow some call but that are not on a path
             // to some criterion.
+            // XXX: must queue the BBlock predecessors first because
+            // if the block has only one node, we will bail out here
             if (nd == cur)
                 break;
 
@@ -900,22 +918,6 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
                     assert(exit && "No exit in a graph");
                     if (visited.insert(exit).second)
                         queue.push(exit);
-                }
-            }
-
-            // last block in the function,
-            // continue into the called functions
-            if (bblock->predecessors().empty()) {
-                auto *local_dg = cur->getDG();
-                for (auto *caller : local_dg->getCallers()) {
-                    if (visited.insert(caller).second)
-                        queue.push(caller);
-                }
-            } else {
-                for (auto pred : bblock->predecessors()) {
-                   auto term = pred->getLastNode();
-                   if (visited.insert(term).second)
-                        queue.push(term);
                 }
             }
         }
