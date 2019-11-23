@@ -869,11 +869,10 @@ getRecursiveFuns(::Slicer& slicer) {
 
     auto *PTA = static_cast<DGLLVMPointerAnalysis*>(slicer.getDG().getPTA());
     auto& cg = PTA->getPTA()->getPG()->getCallGraph();
-
-    auto *entrynd = PTA->getPointsToNode(slicer.getModule()->getFunction("main"));
-    if (!entrynd) // no (defined) functions are called
+    if (cg.empty())  // no (defined) functions are called
         return recursiveFuns;
 
+    auto *entrynd = PTA->getPointsToNode(slicer.getModule()->getFunction("main"));
     auto *entry = cg.get(entrynd);
     assert(entry && "CallGraph has no node for the main function");
 
