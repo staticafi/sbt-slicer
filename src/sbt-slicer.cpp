@@ -388,8 +388,6 @@ public:
         ";   * forward slice: '" + std::to_string(options.forwardSlicing) + "'\n" +
         ";   * remove slicing criteria: '"
              + std::to_string(options.removeSlicingCriteria) + "'\n" +
-        ";   * undefined are pure: '"
-             + std::to_string(options.dgOptions.DDAOptions.undefinedArePure) + "'\n" +
         ";   * pointer analysis: ";
         if (options.dgOptions.PTAOptions.analysisType
                 == LLVMPointerAnalysisOptions::AnalysisType::fi)

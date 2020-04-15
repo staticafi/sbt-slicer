@@ -144,8 +144,6 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
     llvm::cl::opt<LLVMDataDependenceAnalysisOptions::AnalysisType> ddaType("dda",
         llvm::cl::desc("Choose reaching definitions analysis to use:"),
         llvm::cl::values(
-            clEnumValN(LLVMDataDependenceAnalysisOptions::AnalysisType::rd,
-                       "rd", "Classical data-flow DDA"),
             clEnumValN(LLVMDataDependenceAnalysisOptions::AnalysisType::ssa,
                        "ssa", "MemorySSA-based DDA (default)")
     #if LLVM_VERSION_MAJOR < 4
@@ -159,7 +157,6 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         llvm::cl::desc("Choose control dependencies algorithm to use:"),
         llvm::cl::values(
             clEnumValN(dg::CD_ALG::CLASSIC , "classic", "Ferrante's algorithm (default)"),
-            clEnumValN(dg::CD_ALG::CONTROL_EXPRESSION, "ce", "Control expression based (experimental)"),
             clEnumValN(dg::CD_ALG::NTSCD, "ntscd", "Non-termination sensitive control dependencies algorithm")
     #if LLVM_VERSION_MAJOR < 4
             , nullptr
@@ -206,7 +203,6 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
 
     options.dgOptions.DDAOptions.entryFunction = entryFunction;
     options.dgOptions.DDAOptions.strongUpdateUnknown = rdaStrongUpdateUnknown;
-    options.dgOptions.DDAOptions.undefinedArePure = undefinedArePure;
     options.dgOptions.DDAOptions.analysisType = ddaType;
 
     // FIXME: add options class for CD
