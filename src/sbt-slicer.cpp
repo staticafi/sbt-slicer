@@ -904,7 +904,7 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
 {
     std::set<std::string> recursiveFuns;
     if (slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD) {
-        recursiveFuns = std::move(getRecursiveFuns(slicer));
+        recursiveFuns = getRecursiveFuns(slicer);
     }
 
     // FIXME: do this more efficiently (and use the new DFS class)
