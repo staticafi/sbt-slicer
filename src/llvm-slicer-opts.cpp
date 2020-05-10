@@ -3,6 +3,7 @@
 #include "dg/llvm/LLVMDependenceGraphBuilder.h"
 #include "dg/llvm/PointerAnalysis/LLVMPointerAnalysisOptions.h"
 #include "dg/llvm/DataDependence/LLVMDataDependenceAnalysisOptions.h"
+#include "dg/llvm/ControlDependence/LLVMControlDependenceAnalysisOptions.h"
 
 // ignore unused parameters in LLVM libraries
 #if (__clang__)
@@ -29,8 +30,6 @@
 using dg::LLVMPointerAnalysisOptions;
 using dg::LLVMDataDependenceAnalysisOptions;
 
-llvm::cl::OptionCategory SlicingOpts("Slicer options", "");
-
 static const std::pair<const char *, dg::AllocationFunction>
 allocationFuns[] = {
     {"__VERIFIER_malloc",  dg::AllocationFunction::MALLOC},
@@ -46,9 +45,43 @@ void addAllocationFunctions(Opts& opts) {
     }
 }
 
+static void
+addAllocationFuns(dg::llvmdg::LLVMDependenceGraphOptions& dgOptions,
+                  const std::string& allocationFuns) {
+    using dg::AllocationFunction;
+
+    auto items = splitList(allocationFuns);
+    for (auto& item : items) {
+        auto subitms = splitList(item, ':');
+        if (subitms.size() != 2) {
+            llvm::errs() << "ERROR: Invalid allocation function: " << item << "\n";
+            continue;
+        }
+
+        AllocationFunction type;
+        if (subitms[1] == "malloc")
+            type = AllocationFunction::MALLOC;
+        else if (subitms[1] == "calloc")
+            type = AllocationFunction::CALLOC;
+        else if (subitms[1] == "realloc")
+            type = AllocationFunction::REALLOC;
+        else {
+            llvm::errs() << "ERROR: Invalid type of allocation function: "
+                         << item << "\n";
+            continue;
+        }
+
+        dgOptions.PTAOptions.addAllocationFunction(subitms[0], type);
+        dgOptions.DDAOptions.addAllocationFunction(subitms[0], type);
+    }
+}
+
+
+llvm::cl::OptionCategory SlicingOpts("Slicer options", "");
+
 // Use LLVM's CommandLine library to parse
 // command line arguments
-SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
+SlicerOptions parseSlicerOptions(int argc, char *argv[], bool requireCrit) {
     using dg::Offset;
 
     llvm::cl::opt<std::string> outputFile("o",
@@ -59,7 +92,7 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
     llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
         llvm::cl::desc("<input file>"), llvm::cl::init(""), llvm::cl::cat(SlicingOpts));
 
-    llvm::cl::opt<std::string> slicingCriteria("c", llvm::cl::Required,
+    llvm::cl::opt<std::string> slicingCriteria("c",
         llvm::cl::desc("Slice with respect to the call-sites of a given function\n"
                        "i. e.: '-c foo' or '-c __assert_fail'. Special value is a 'ret'\n"
                        "in which case the slice is taken with respect to the return value\n"
@@ -70,6 +103,9 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
                        "You can use comma-separated list of more slicing criteria,\n"
                        "e.g. -c foo,5:x,:glob\n"), llvm::cl::value_desc("crit"),
                        llvm::cl::init(""), llvm::cl::cat(SlicingOpts));
+    if (requireCrit) {
+        slicingCriteria.setNumOccurrencesFlag(llvm::cl::Required);
+    }
 
     llvm::cl::opt<std::string> secondarySlicingCriteria("2c",
         llvm::cl::desc("Set secondary slicing criterion. The criterion is a call\n"
@@ -82,22 +118,21 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
                        llvm::cl::init(""), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<bool> removeSlicingCriteria("remove-slicing-criteria",
-        llvm::cl::desc("By default, slicer keeps also calls to the slicing criteria\n"
+        llvm::cl::desc("By default, slicer keeps also slicing criteria\n"
                        "in the sliced program. This switch makes slicer to remove\n"
-                       "also the calls (i.e. behave like Weisser's algorithm)"),
+                       "also the criteria (i.e. behave like Weisser's algorithm)"),
                        llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<std::string> preservedFuns("preserved-functions",
-        llvm::cl::desc("Do not slice bodies of the given functions\n."
+        llvm::cl::desc("Do not slice bodies of the given functions.\n"
                        "The argument is a comma-separated list of functions.\n"),
                        llvm::cl::value_desc("funs"),
                        llvm::cl::init(""), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<bool> interprocCd("interproc-cd",
         llvm::cl::desc("Do not slice away parts of programs that might make\n"
-                       "the slicing criteria unreachable (e.g. calls to exit() "
-                       "or potentially infinite loops).\n"
-                       "Default: on\n"),
+                       "the slicing criteria unreachable (e.g. calls to exit()\n"
+                       "or potentially infinite loops). Default: on\n"),
                        llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<uint64_t> ptaFieldSensitivity("pta-field-sensitive",
@@ -107,15 +142,28 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
                        llvm::cl::value_desc("N"), llvm::cl::init(dg::Offset::UNKNOWN),
                        llvm::cl::cat(SlicingOpts));
 
-    llvm::cl::opt<bool> rdaStrongUpdateUnknown("rd-strong-update-unknown",
-        llvm::cl::desc("Let reaching defintions analysis do strong updates on memory defined\n"
-                       "with uknown offset in the case, that new definition overwrites\n"
-                       "the whole memory. May be unsound for out-of-bound access\n"),
-                       llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
-
-    llvm::cl::opt<bool> undefinedArePure("undefined-are-pure",
-        llvm::cl::desc("Assume that undefined functions have no side-effects\n"),
-                       llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
+    llvm::cl::opt<dg::dda::UndefinedFunsBehavior> undefinedFunsBehavior("undefined-funs",
+        llvm::cl::desc("Set the behavior of undefined functions\n"),
+        llvm::cl::values(
+            clEnumValN(dg::dda::PURE,       "pure",
+                       "Assume that undefined functions do not read nor write memory"),
+            clEnumValN(dg::dda::WRITE_ANY,  "write-any",
+                       "Assume that undefined functions may write any memory"),
+            clEnumValN(dg::dda::READ_ANY,   "read-any",
+                       "Assume that undefined functions may read any memory"),
+            clEnumValN(dg::dda::READ_ANY | dg::dda::WRITE_ANY,   "rw-any",
+                       "Assume that undefined functions may read and write any memory"),
+            clEnumValN(dg::dda::WRITE_ARGS, "write-args",
+                       "Assume that undefined functions may write to arguments"),
+            clEnumValN(dg::dda::READ_ARGS,  "read-args",
+                       "Assume that undefined functions may read from arguments (default)"),
+            clEnumValN(dg::dda::WRITE_ARGS | dg::dda::READ_ARGS,
+                       "rw-args",  "Assume that undefined functions may read or write from/to arguments")
+    #if LLVM_VERSION_MAJOR < 4
+            , nullptr
+    #endif
+            ),
+        llvm::cl::init(dg::dda::READ_ARGS), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<std::string> entryFunction("entry",
         llvm::cl::desc("Entry function of the program\n"),
@@ -129,12 +177,23 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         llvm::cl::desc("Consider threads are in input file (default=false)."),
         llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
+    llvm::cl::opt<std::string> allocationFuns("allocation-funs",
+        llvm::cl::desc("Treat these functions as allocation functions\n"
+                       "The argument is a comma-separated list of func:type,\n"
+                       "where func is the function and type is one of\n"
+                       "malloc, calloc, or realloc.\n"
+                       "E.g., myAlloc:malloc will treat myAlloc as malloc.\n"),
+                       llvm::cl::cat(SlicingOpts));
+
     llvm::cl::opt<LLVMPointerAnalysisOptions::AnalysisType> ptaType("pta",
         llvm::cl::desc("Choose pointer analysis to use:"),
         llvm::cl::values(
             clEnumValN(LLVMPointerAnalysisOptions::AnalysisType::fi, "fi", "Flow-insensitive PTA (default)"),
             clEnumValN(LLVMPointerAnalysisOptions::AnalysisType::fs, "fs", "Flow-sensitive PTA"),
             clEnumValN(LLVMPointerAnalysisOptions::AnalysisType::inv, "inv", "PTA with invalidate nodes")
+#ifdef HAVE_SVF
+            , clEnumValN(LLVMPointerAnalysisOptions::AnalysisType::svf, "svf", "Use pointer analysis from SVF project")
+#endif
     #if LLVM_VERSION_MAJOR < 4
             , nullptr
     #endif
@@ -142,10 +201,10 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         llvm::cl::init(LLVMPointerAnalysisOptions::AnalysisType::fi), llvm::cl::cat(SlicingOpts));
 
     llvm::cl::opt<LLVMDataDependenceAnalysisOptions::AnalysisType> ddaType("dda",
-        llvm::cl::desc("Choose reaching definitions analysis to use:"),
+        llvm::cl::desc("Choose data dependence analysis to use:"),
         llvm::cl::values(
             clEnumValN(LLVMDataDependenceAnalysisOptions::AnalysisType::ssa,
-                       "ssa", "MemorySSA-based DDA (default)")
+                       "ssa", "MemorySSA DDA (the only option right now)")
     #if LLVM_VERSION_MAJOR < 4
             , nullptr
     #endif
@@ -153,16 +212,22 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         llvm::cl::init(LLVMDataDependenceAnalysisOptions::AnalysisType::ssa),
                        llvm::cl::cat(SlicingOpts));
 
-    llvm::cl::opt<dg::CD_ALG> cdAlgorithm("cd-alg",
+    // FIXME: rename to -cda ?
+    llvm::cl::opt<dg::ControlDependenceAnalysisOptions::CDAlgorithm> cdAlgorithm("cd-alg",
         llvm::cl::desc("Choose control dependencies algorithm to use:"),
         llvm::cl::values(
-            clEnumValN(dg::CD_ALG::CLASSIC , "classic", "Ferrante's algorithm (default)"),
-            clEnumValN(dg::CD_ALG::NTSCD, "ntscd", "Non-termination sensitive control dependencies algorithm")
+            clEnumValN(dg::ControlDependenceAnalysisOptions::CDAlgorithm::STANDARD,
+                       "standard", "Ferrante's algorithm (default)"),
+            clEnumValN(dg::ControlDependenceAnalysisOptions::CDAlgorithm::STANDARD,
+                       "classic", "Alias to \"standard\""),
+            clEnumValN(dg::ControlDependenceAnalysisOptions::CDAlgorithm::NTSCD,
+                       "ntscd", "Non-termination sensitive control dependencies algorithm")
     #if LLVM_VERSION_MAJOR < 4
             , nullptr
     #endif
              ),
-        llvm::cl::init(dg::CD_ALG::CLASSIC), llvm::cl::cat(SlicingOpts));
+        llvm::cl::init(dg::ControlDependenceAnalysisOptions::CDAlgorithm::STANDARD),
+        llvm::cl::cat(SlicingOpts));
 
     ////////////////////////////////////
     // ===-- End of the options --=== //
@@ -192,22 +257,21 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
     options.removeSlicingCriteria = removeSlicingCriteria;
     options.forwardSlicing = forwardSlicing;
 
-    options.dgOptions.entryFunction = entryFunction;
-    options.dgOptions.PTAOptions.entryFunction = entryFunction;
-    options.dgOptions.PTAOptions.fieldSensitivity = Offset(ptaFieldSensitivity);
-    options.dgOptions.PTAOptions.analysisType = ptaType;
+    auto& dgOptions = options.dgOptions;
+    auto& PTAOptions = dgOptions.PTAOptions;
+    auto& DDAOptions = dgOptions.DDAOptions;
+    auto& CDAOptions = dgOptions.CDAOptions;
 
-    options.dgOptions.threads = threads;
-    options.dgOptions.PTAOptions.threads = threads;
-    options.dgOptions.DDAOptions.threads = threads;
-
-    options.dgOptions.DDAOptions.entryFunction = entryFunction;
-    options.dgOptions.DDAOptions.analysisType = ddaType;
+    dgOptions.entryFunction = entryFunction;
+    dgOptions.threads = threads;
 
     // FIXME: add options class for CD
-    options.dgOptions.cdAlgorithm = cdAlgorithm;
-    options.dgOptions.interprocCd = interprocCd;
+    CDAOptions.algorithm = cdAlgorithm;
+    CDAOptions.interprocedural = interprocCd;
 
+    addAllocationFuns(dgOptions, allocationFuns);
+
+    // sbt-slicer specific
     addAllocationFunctions(options.dgOptions.PTAOptions);
     addAllocationFunctions(options.dgOptions.DDAOptions);
 
@@ -223,6 +287,16 @@ SlicerOptions parseSlicerOptions(int argc, char *argv[]) {
         "klee_make_symbolic", {0, 0, 1});
     options.dgOptions.DDAOptions.functionModelAddDef(
         "klee_make_nondet", {0, 0, 1});
+
+    PTAOptions.entryFunction = entryFunction;
+    PTAOptions.fieldSensitivity = dg::Offset(ptaFieldSensitivity);
+    PTAOptions.analysisType = ptaType;
+    PTAOptions.threads = threads;
+
+    DDAOptions.threads = threads;
+    DDAOptions.entryFunction = entryFunction;
+    DDAOptions.undefinedFunsBehavior = undefinedFunsBehavior;
+    DDAOptions.analysisType = ddaType;
 
     return options;
 }

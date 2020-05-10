@@ -838,7 +838,7 @@ void checkSecondarySlicingCrit(::Slicer& slicer,
                 break;
             }
         }
-    } else if (slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD) {
+    } else if (slicer.getOptions().dgOptions.CDAOptions.ntscdCD()) {
         if (isCallTo(nd, recursiveFuns)) {
             llvm::errs() << "Found (ntscd) conditional SC: "
                          << *nd->getValue() << "\n";
@@ -901,7 +901,7 @@ bool findSecondarySlicingCriteria(::Slicer& slicer,
                                   const std::set<std::string>& secondaryDataCriteria)
 {
     std::set<std::string> recursiveFuns;
-    if (slicer.getOptions().dgOptions.cdAlgorithm == dg::CD_ALG::NTSCD) {
+    if (slicer.getOptions().dgOptions.CDAOptions.ntscdCD()) {
         recursiveFuns = std::move(getRecursiveFuns(slicer));
     }
 

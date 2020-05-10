@@ -115,7 +115,7 @@ public:
         llvm::errs() << "INFO: CPU time of data dependence analysis: "
                      << double(stats.rdaTime) / CLOCKS_PER_SEC << " s\n";
         llvm::errs() << "INFO: CPU time of control dependence analysis: "
-                     << double(stats.cdTime) / CLOCKS_PER_SEC << " s\n";
+                     << double(stats.cdaTime) / CLOCKS_PER_SEC << " s\n";
     }
 
     // Mark the nodes from the slice.
