@@ -70,7 +70,7 @@ add_definitions(-DHAVE_LLVM)
 
 if(DG_INCLUDE_PATH)
 else()
-	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include)
+	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
 endif()
 
 if(DG_LIB_PATH)
@@ -81,8 +81,8 @@ endif()
 # DG_PATH is a path to an in-source build of dg
 if (DG_PATH)
 	message(STATUS "Setting-up paths to an in-source build of dg")
-	set(DG_INCLUDE_PATH ${DG_PATH}/include)
-	set(DG_LIB_PATH ${DG_PATH}/lib)
+	set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH}/tools/include)
+	set(DG_LIB_PATH ${DG_PATH}/lib ${DG_PATH}/tools)
 endif()
 
 message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
@@ -99,6 +99,7 @@ find_library(LIBLLVMRD dgllvmdda PATH ${DG_LIB_PATH})
 find_library(LIBLLVMDG dgllvmdg PATH ${DG_LIB_PATH})
 find_library(LIBDGCD dgllvmcda PATH ${DG_LIB_PATH})
 find_library(LIBDGTR dgllvmthreadregions PATH ${DG_LIB_PATH})
+find_library(LIBDGLLVMSLICER dgllvmslicer PATH ${DG_LIB_PATH}/../tools)
 
 if (LIBDGANALYSIS)
 	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
@@ -156,11 +157,17 @@ else()
 	        "libdgllvmthreadregions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
 endif()
 
+if (LIBDGLLVMSLICER)
+	message(STATUS "libdgllvmslicer library found: ${LIBDGLLVMSLICER}")
+else()
+	message(FATAL_ERROR
+	        "libdgllvmslicer library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+endif()
 
 
 set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
 	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG}
-	    ${LIBDGCD} ${LIBDGTR})
+	    ${LIBDGCD} ${LIBDGTR} ${LIBDGLLVMSLICER})
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")
