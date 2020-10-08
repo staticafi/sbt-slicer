@@ -61,7 +61,6 @@
 #include "dg/ADT/Queue.h"
 #include "dg/llvm/LLVMDG2Dot.h"
 #include "dg/llvm/LLVMDGAssemblyAnnotationWriter.h"
-#include "llvm-utils.h"
 
 using namespace dg;
 
