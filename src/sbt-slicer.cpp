@@ -447,18 +447,18 @@ int main(int argc, char *argv[])
 
     SlicerOptions options = parseSlicerOptions(argc, argv);
 
-    if (!options.secondarySlicingCriteria.empty())
-        options.secondarySlicingCriteria += ",";
+    if (!options.legacySecondarySlicingCriteria.empty())
+        options.legacySecondarySlicingCriteria += ",";
 
     // we do not want to slice away any assumptions
     // about the code
     // XXX: do this optional only for TEST/SV-COMP?
-    options.secondarySlicingCriteria +=
+    options.legacySecondarySlicingCriteria +=
         "__VERIFIER_assume,klee_assume";
 
     if (memsafety) {
         criteria_are_next_instr = true;
-        options.secondarySlicingCriteria += ","
+        options.legacySecondarySlicingCriteria += ","
             "llvm.lifetime.start.p0i8(),"
             "llvm.lifetime.end.p0i8(),"
             "__VERIFIER_scope_enter(),"
@@ -511,7 +511,8 @@ int main(int argc, char *argv[])
     std::set<LLVMNode *> criteria_nodes;
     if (!getSlicingCriteriaNodes(slicer.getDG(),
                                  options.slicingCriteria,
-                                 options.secondarySlicingCriteria,
+                                 options.legacySlicingCriteria,
+                                 options.legacySecondarySlicingCriteria,
                                  criteria_nodes,
                                  criteria_are_next_instr)) {
         llvm::errs() << "ERROR: Failed finding slicing criteria: '"
