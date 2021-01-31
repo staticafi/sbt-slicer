@@ -62,6 +62,8 @@
 #include "dg/llvm/LLVMDG2Dot.h"
 #include "dg/llvm/LLVMDGAssemblyAnnotationWriter.h"
 
+#include "git-version.h"
+
 using namespace dg;
 
 using llvm::errs;
@@ -220,6 +222,12 @@ void setupStackTraceOnError(int, char **) {}
 int main(int argc, char *argv[])
 {
     setupStackTraceOnError(argc, argv);
+
+# if ((LLVM_VERSION_MAJOR >= 6))
+    llvm::cl::SetVersionPrinter([](llvm::raw_ostream&){ printf("%s\n", GIT_VERSION); });
+#else
+    llvm::cl::SetVersionPrinter([](){ printf("%s\n", GIT_VERSION); });
+#endif
 
     SlicerOptions options = parseSlicerOptions(argc, argv);
 
