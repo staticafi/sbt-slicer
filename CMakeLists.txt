@@ -56,12 +56,24 @@ endif(LLVM_BUILD_PATH)
 
 add_definitions(${LLVM_DEFINITIONS})
 
-if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
-	llvm_map_components_to_libnames(llvm_libs support core
-	                                irreader bitwriter analysis)
+option(LLVM_LINK_DYLIB "Link with LLVM dynamically" ON)
+if (LLVM_LINK_DYLIB)
+	message(STATUS "LLVM linking: dynamic")
+	if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.8")
+		set(llvm_libs LLVM-${LLVM_PACKAGE_VERSION})
+	else()
+		# only LLVM 3.8+ provide unversioned library
+		set(llvm_libs LLVM)
+	endif()
 else()
-	llvm_map_components_to_libraries(llvm_libs support core
-	                                 irreader bitwriter analysis)
+	message(STATUS "LLVM linking: static")
+	if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
+		llvm_map_components_to_libnames(llvm_libs support core
+		                                irreader bitwriter analysis)
+	else()
+		llvm_map_components_to_libraries(llvm_libs support core
+		                                 irreader bitwriter analysis)
+	endif()
 endif()
 
 # enable CFG and LLVM in dg
