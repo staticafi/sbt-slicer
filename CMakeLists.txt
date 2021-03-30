@@ -114,11 +114,13 @@ foreach(lib dganalysis dgpta dgdda dgllvmpta dgllvmdda dgllvmdg dgllvmcda
   find_dg_library(${lib})
 endforeach()
 
+# --------------------------------------------------
+# Set correct install directories
+# --------------------------------------------------
 include(GNUInstallDirs)
-message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")
-message(STATUS "CMAKE_INSTALL_DATADIR: \"${CMAKE_INSTALL_FULL_DATADIR}\"")
+message(STATUS "CMAKE_INSTALL_BINDIR: \"${CMAKE_INSTALL_BINDIR}\"")
 
-enable_testing()
-
+# --------------------------------------------------
+# Subdirectories
+# --------------------------------------------------
 add_subdirectory(src)
-#add_subdirectory(tests)
