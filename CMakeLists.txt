@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.1.0)
-project(sbt-slicer)
+project(sbt-slicer CXX)
+
+# --------------------------------------------------
+# Build type
+# --------------------------------------------------
+if(NOT CMAKE_BUILD_TYPE)
+  message(STATUS "Build type not set. Setting default.")
+  set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "" FORCE)
+endif()
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "RelWithDebInfo"
+                                                     "MinSizeRel" "Release")
 
 # --------------------------------------------------
 # Compiler flags
