@@ -69,25 +69,27 @@ else()
   endif()
 endif()
 
+# --------------------------------------------------
+# DG
+# --------------------------------------------------
+
 # enable CFG and LLVM in dg
 add_definitions(-DENABLE_CFG)
 add_definitions(-DHAVE_LLVM)
 
-if(DG_INCLUDE_PATH)
-else()
-	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
+if(NOT DG_INCLUDE_PATH)
+  set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
 endif()
 
-if(DG_LIB_PATH)
-else()
-	set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/lib)
+if(NOT DG_LIB_PATH)
+  set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/lib)
 endif()
 
 # DG_PATH is a path to an in-source build of dg
 if (DG_PATH)
-	message(STATUS "Setting-up paths to an in-source build of dg")
-	set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH}/tools/include)
-	set(DG_LIB_PATH ${DG_PATH}/lib ${DG_PATH}/tools)
+  message(STATUS "Setting-up paths to an in-source build of dg")
+  set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH}/tools/include)
+  set(DG_LIB_PATH ${DG_PATH}/lib ${DG_PATH}/tools)
 endif()
 
 message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
@@ -96,83 +98,21 @@ message(STATUS "DG library paths: ${DG_LIB_PATH}")
 include_directories(${DG_INCLUDE_PATH})
 link_directories(${DG_LIB_PATH})
 
-find_library(LIBDGANALYSIS dganalysis PATH ${DG_LIB_PATH})
-find_library(LIBPTA dgpta PATH ${DG_LIB_PATH})
-find_library(LIBRD dgdda PATH ${DG_LIB_PATH})
-find_library(LIBLLVMPTA dgllvmpta PATH ${DG_LIB_PATH})
-find_library(LIBLLVMRD dgllvmdda PATH ${DG_LIB_PATH})
-find_library(LIBLLVMDG dgllvmdg PATH ${DG_LIB_PATH})
-find_library(LIBDGCD dgllvmcda PATH ${DG_LIB_PATH})
-find_library(LIBDGTR dgllvmthreadregions PATH ${DG_LIB_PATH})
-find_library(LIBDGLLVMSLICER dgllvmslicer PATH ${DG_LIB_PATH}/../tools)
+# TODO: Maybe we could make a DG CMake package and then just use find_package?
+macro(find_dg_library lib)
+  find_library(lib${lib} ${lib} PATHS ${DG_LIB_PATH} ${DG_LIB_PATH}/../tools)
+  if(lib${lib})
+    message(STATUS "lib${lib} library found: ${lib${lib}}")
+  else()
+    message(FATAL_ERROR "lib${lib} library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+  endif()
+  list(APPEND DG_LIBS ${lib${lib}})
+endmacro()
 
-if (LIBDGANALYSIS)
-	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
-else()
-	message(FATAL_ERROR
-	        "libDGAnalysis library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBPTA)
-	message(STATUS "libPTA library found: ${LIBPTA}")
-else()
-	message(FATAL_ERROR
-	        "libPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBRD)
-	message(STATUS "libRD library found: ${LIBRD}")
-else()
-	message(FATAL_ERROR
-	        "libRD library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMPTA)
-	message(STATUS "libLLVMPTA library found: ${LIBLLVMPTA}")
-else()
-	message(FATAL_ERROR
-	        "libLLVMPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMRD)
-	message(STATUS "dgllvmdda library found: ${LIBLLVMRD}")
-else()
-	message(FATAL_ERROR
-	        "dgllvmdda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMDG)
-	message(STATUS "dgllvmdg library found: ${LIBLLVMDG}")
-else()
-	message(FATAL_ERROR
-	        "dgllvmdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGCD)
-	message(STATUS "libdgllvmcda library found: ${LIBDGCD}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmcda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGTR)
-	message(STATUS "libdgThreadRegions library found: ${LIBDGTR}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmthreadregions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGLLVMSLICER)
-	message(STATUS "libdgllvmslicer library found: ${LIBDGLLVMSLICER}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmslicer library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-
-set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
-	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG}
-	    ${LIBDGCD} ${LIBDGTR} ${LIBDGLLVMSLICER})
+foreach(lib dganalysis dgpta dgdda dgllvmpta dgllvmdda dgllvmdg dgllvmcda
+            dgllvmthreadregions dgllvmslicer)
+  find_dg_library(${lib})
+endforeach()
 
 include(GNUInstallDirs)
 message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")
