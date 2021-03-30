@@ -17,9 +17,9 @@
 #error "Unsupported version of LLVM"
 #endif
 
-#include "dg/tools/llvm-slicer.h"
-#include "dg/tools/llvm-slicer-opts.h"
-#include "dg/tools/llvm-slicer-utils.h"
+#include <dg/tools/llvm-slicer.h>
+#include <dg/tools/llvm-slicer-opts.h>
+#include <dg/tools/llvm-slicer-utils.h>
 
 // ignore unused parameters in LLVM libraries
 #if (__clang__)
@@ -67,8 +67,6 @@
 using namespace dg;
 
 using llvm::errs;
-using dg::LLVMPointerAnalysisOptions;
-using dg::LLVMDataDependenceAnalysisOptions;
 
 using AnnotationOptsT
     = dg::debug::LLVMDGAssemblyAnnotationWriter::AnnotationOptsT;
@@ -137,14 +135,14 @@ static void maybe_print_statistics(llvm::Module *M, const char *prefix = nullptr
     uint64_t inum, bnum, fnum, gnum;
     inum = bnum = fnum = gnum = 0;
 
-    for (auto I = M->begin(), E = M->end(); I != E; ++I) {
+    for (const Function& F : *M) {
         // don't count in declarations
-        if (I->size() == 0)
+        if (F.empty())
             continue;
 
         ++fnum;
 
-        for (const BasicBlock& B : *I) {
+        for (const BasicBlock& B : F) {
             ++bnum;
             inum += B.size();
         }
