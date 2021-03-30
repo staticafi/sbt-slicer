@@ -1,16 +1,29 @@
 cmake_minimum_required(VERSION 3.1.0)
 project(sbt-slicer)
 
+# --------------------------------------------------
+# Compiler flags
+# --------------------------------------------------
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -Wall -Wextra -pedantic")
+
+# --------------------------------------------------
+# LLVM
+# --------------------------------------------------
 find_package(LLVM REQUIRED CONFIG)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-message(STATUS "LLVM binaries: ${LLVM_TOOLS_BINARY_DIR}")
+message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
+message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIRS}")
+message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${LLVM_DIR}")
-include(LLVMConfig)
+list(APPEND CMAKE_MODULE_PATH "${LLVM_DIR}")
 include(AddLLVM)
 
+# TODO: move this to the section above when we switch to C++14
 # LLVM 10 and newer require at least C++14 standard
 if (${LLVM_PACKAGE_VERSION} VERSION_GREATER "9.0")
   set(CMAKE_CXX_STANDARD 14)
@@ -20,60 +33,29 @@ else()
   set(CMAKE_CXX_STANDARD 11)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif()
-set(CMAKE_CXX_STANDARD_REQUIRED on)
-
-# Compiler Options
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -Wall -Wextra")
-
-message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIRS}")
-message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
-message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
 
 include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBRARY_DIRS})
-
-# if we were provided a path to custom sources use that path
-if (LLVM_SRC_PATH)
-  include_directories(${LLVM_SRC_PATH}/include)
-  message(STATUS "Looking for LLVM headers in given: ${LLVM_SRC_PATH}/include")
-else()
-  include_directories(${LLVM_INCLUDE_DIRS})
-  message(STATUS "Looking for LLVM headers in: ${LLVM_INCLUDE_DIRS}")
-endif()
-
-# if we were provided a path to custom build directory
-# use that
-if (LLVM_BUILD_PATH)
-  link_directories(${LLVM_BUILD_PATH}/lib)
-
-  # llvm-config.h
-  include_directories("${LLVM_BUILD_PATH}/include")
-  message(STATUS "Looking for libraries in given: ${LLVM_BUILD_PATH}/lib")
-else()
-  link_directories(${LLVM_LIBRARY_DIRS})
-  message(STATUS "Looking for libraries in: ${LLVM_LIBRARY_DIRS}")
-endif(LLVM_BUILD_PATH)
-
 add_definitions(${LLVM_DEFINITIONS})
 
 option(LLVM_LINK_DYLIB "Link with LLVM dynamically" ON)
 if (LLVM_LINK_DYLIB)
-	message(STATUS "LLVM linking: dynamic")
-	if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.8")
-		set(llvm_libs LLVM-${LLVM_PACKAGE_VERSION})
-	else()
-		# only LLVM 3.8+ provide unversioned library
-		set(llvm_libs LLVM)
-	endif()
+  message(STATUS "LLVM linking: dynamic")
+  if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.8")
+    set(LLVM_LIBS LLVM-${LLVM_PACKAGE_VERSION})
+  else()
+    # only LLVM 3.8+ provide unversioned library
+    set(LLVM_LIBS LLVM)
+  endif()
 else()
-	message(STATUS "LLVM linking: static")
-	if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
-		llvm_map_components_to_libnames(llvm_libs support core
-		                                irreader bitwriter analysis)
-	else()
-		llvm_map_components_to_libraries(llvm_libs support core
-		                                 irreader bitwriter analysis)
-	endif()
+  message(STATUS "LLVM linking: static")
+  if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
+    llvm_map_components_to_libnames(LLVM_LIBS analysis bitwriter core irreader
+                                              support)
+  else()
+    llvm_map_components_to_libraries(LLVM_LIBS analysis bitwriter core irreader
+                                               support)
+  endif()
 endif()
 
 # enable CFG and LLVM in dg
