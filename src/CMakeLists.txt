@@ -17,9 +17,10 @@ set(GIT_VERSION ${GIT_VERSION} CACHE STRING "Git version hash" FORCE)
 configure_file(git-version.h.in git-version.h @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+# --------------------------------------------------
+# sbt-slicer
+# --------------------------------------------------
 add_executable(sbt-slicer sbt-slicer.cpp)
-target_link_libraries(sbt-slicer ${dg_libs} ${llvm_libs})
-add_dependencies(sbt-slicer gitversion)
+target_link_libraries(sbt-slicer ${DG_LIBS} ${LLVM_LIBS})
 
-install(TARGETS sbt-slicer RUNTIME DESTINATION bin)
-
+install(TARGETS sbt-slicer RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
