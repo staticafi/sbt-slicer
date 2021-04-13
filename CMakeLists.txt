@@ -1,16 +1,40 @@
-cmake_minimum_required(VERSION 2.8.8)
-project(sbt-slicer)
+cmake_minimum_required(VERSION 3.1.0)
+project(sbt-slicer CXX)
 
+# --------------------------------------------------
+# Build type
+# --------------------------------------------------
+if(NOT CMAKE_BUILD_TYPE)
+  message(STATUS "Build type not set. Setting default.")
+  set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "" FORCE)
+endif()
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "RelWithDebInfo"
+                                                     "MinSizeRel" "Release")
+
+# --------------------------------------------------
+# Compiler flags
+# --------------------------------------------------
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -Wall -Wextra -pedantic")
+
+# --------------------------------------------------
+# LLVM
+# --------------------------------------------------
 find_package(LLVM REQUIRED CONFIG)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-message(STATUS "LLVM binaries: ${LLVM_TOOLS_BINARY_DIR}")
+message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
+message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIRS}")
+message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${LLVM_DIR}")
-include(LLVMConfig)
+list(APPEND CMAKE_MODULE_PATH "${LLVM_DIR}")
 include(AddLLVM)
 
+# TODO: move this to the section above when we switch to C++14
 # LLVM 10 and newer require at least C++14 standard
 if (${LLVM_PACKAGE_VERSION} VERSION_GREATER "9.0")
   set(CMAKE_CXX_STANDARD 14)
@@ -20,81 +44,52 @@ else()
   set(CMAKE_CXX_STANDARD 11)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 endif()
-set(CMAKE_CXX_STANDARD_REQUIRED on)
-
-# Compiler Options
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -Wall -Wextra")
-
-message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIRS}")
-message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
-message(STATUS "LLVM definitions: ${LLVM_DEFINITIONS}")
 
 include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBRARY_DIRS})
-
-# if we were provided a path to custom sources use that path
-if (LLVM_SRC_PATH)
-  include_directories(${LLVM_SRC_PATH}/include)
-  message(STATUS "Looking for LLVM headers in given: ${LLVM_SRC_PATH}/include")
-else()
-  include_directories(${LLVM_INCLUDE_DIRS})
-  message(STATUS "Looking for LLVM headers in: ${LLVM_INCLUDE_DIRS}")
-endif()
-
-# if we were provided a path to custom build directory
-# use that
-if (LLVM_BUILD_PATH)
-  link_directories(${LLVM_BUILD_PATH}/lib)
-
-  # llvm-config.h
-  include_directories("${LLVM_BUILD_PATH}/include")
-  message(STATUS "Looking for libraries in given: ${LLVM_BUILD_PATH}/lib")
-else()
-  link_directories(${LLVM_LIBRARY_DIRS})
-  message(STATUS "Looking for libraries in: ${LLVM_LIBRARY_DIRS}")
-endif(LLVM_BUILD_PATH)
-
 add_definitions(${LLVM_DEFINITIONS})
 
 option(LLVM_LINK_DYLIB "Link with LLVM dynamically" ON)
 if (LLVM_LINK_DYLIB)
-	message(STATUS "LLVM linking: dynamic")
-	if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.8")
-		set(llvm_libs LLVM-${LLVM_PACKAGE_VERSION})
-	else()
-		# only LLVM 3.8+ provide unversioned library
-		set(llvm_libs LLVM)
-	endif()
+  message(STATUS "LLVM linking: dynamic")
+  if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.8")
+    set(LLVM_LIBS LLVM-${LLVM_PACKAGE_VERSION})
+  else()
+    # only LLVM 3.8+ provide unversioned library
+    set(LLVM_LIBS LLVM)
+  endif()
 else()
-	message(STATUS "LLVM linking: static")
-	if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
-		llvm_map_components_to_libnames(llvm_libs support core
-		                                irreader bitwriter analysis)
-	else()
-		llvm_map_components_to_libraries(llvm_libs support core
-		                                 irreader bitwriter analysis)
-	endif()
+  message(STATUS "LLVM linking: static")
+  if (NOT ${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
+    llvm_map_components_to_libnames(LLVM_LIBS analysis bitwriter core irreader
+                                              support)
+  else()
+    llvm_map_components_to_libraries(LLVM_LIBS analysis bitwriter core irreader
+                                               support)
+  endif()
 endif()
+
+# --------------------------------------------------
+# DG
+# --------------------------------------------------
 
 # enable CFG and LLVM in dg
 add_definitions(-DENABLE_CFG)
 add_definitions(-DHAVE_LLVM)
 
-if(DG_INCLUDE_PATH)
-else()
-	set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
+if(NOT DG_INCLUDE_PATH)
+  set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
 endif()
 
-if(DG_LIB_PATH)
-else()
-	set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/lib)
+if(NOT DG_LIB_PATH)
+  set(DG_LIB_PATH ${CMAKE_SOURCE_DIR}/dg/lib)
 endif()
 
 # DG_PATH is a path to an in-source build of dg
 if (DG_PATH)
-	message(STATUS "Setting-up paths to an in-source build of dg")
-	set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH}/tools/include)
-	set(DG_LIB_PATH ${DG_PATH}/lib ${DG_PATH}/tools)
+  message(STATUS "Setting-up paths to an in-source build of dg")
+  set(DG_INCLUDE_PATH ${DG_PATH}/include ${DG_PATH}/tools/include)
+  set(DG_LIB_PATH ${DG_PATH}/lib ${DG_PATH}/tools)
 endif()
 
 message(STATUS "DG include paths: ${DG_INCLUDE_PATH}")
@@ -103,89 +98,29 @@ message(STATUS "DG library paths: ${DG_LIB_PATH}")
 include_directories(${DG_INCLUDE_PATH})
 link_directories(${DG_LIB_PATH})
 
-find_library(LIBDGANALYSIS dganalysis PATH ${DG_LIB_PATH})
-find_library(LIBPTA dgpta PATH ${DG_LIB_PATH})
-find_library(LIBRD dgdda PATH ${DG_LIB_PATH})
-find_library(LIBLLVMPTA dgllvmpta PATH ${DG_LIB_PATH})
-find_library(LIBLLVMRD dgllvmdda PATH ${DG_LIB_PATH})
-find_library(LIBLLVMDG dgllvmdg PATH ${DG_LIB_PATH})
-find_library(LIBDGCD dgllvmcda PATH ${DG_LIB_PATH})
-find_library(LIBDGTR dgllvmthreadregions PATH ${DG_LIB_PATH})
-find_library(LIBDGLLVMSLICER dgllvmslicer PATH ${DG_LIB_PATH}/../tools)
+# TODO: Maybe we could make a DG CMake package and then just use find_package?
+macro(find_dg_library lib)
+  find_library(lib${lib} ${lib} PATHS ${DG_LIB_PATH} ${DG_LIB_PATH}/../tools)
+  if(lib${lib})
+    message(STATUS "lib${lib} library found: ${lib${lib}}")
+  else()
+    message(FATAL_ERROR "lib${lib} library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
+  endif()
+  list(APPEND DG_LIBS ${lib${lib}})
+endmacro()
 
-if (LIBDGANALYSIS)
-	message(STATUS "libDGAnalysis library found: ${LIBDGANALYSIS}")
-else()
-	message(FATAL_ERROR
-	        "libDGAnalysis library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
+foreach(lib dganalysis dgpta dgdda dgllvmpta dgllvmdda dgllvmdg dgllvmcda
+            dgllvmthreadregions dgllvmslicer)
+  find_dg_library(${lib})
+endforeach()
 
-if (LIBPTA)
-	message(STATUS "libPTA library found: ${LIBPTA}")
-else()
-	message(FATAL_ERROR
-	        "libPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBRD)
-	message(STATUS "libRD library found: ${LIBRD}")
-else()
-	message(FATAL_ERROR
-	        "libRD library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMPTA)
-	message(STATUS "libLLVMPTA library found: ${LIBLLVMPTA}")
-else()
-	message(FATAL_ERROR
-	        "libLLVMPTA library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMRD)
-	message(STATUS "dgllvmdda library found: ${LIBLLVMRD}")
-else()
-	message(FATAL_ERROR
-	        "dgllvmdda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBLLVMDG)
-	message(STATUS "dgllvmdg library found: ${LIBLLVMDG}")
-else()
-	message(FATAL_ERROR
-	        "dgllvmdg library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGCD)
-	message(STATUS "libdgllvmcda library found: ${LIBDGCD}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmcda library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGTR)
-	message(STATUS "libdgThreadRegions library found: ${LIBDGTR}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmthreadregions library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-if (LIBDGLLVMSLICER)
-	message(STATUS "libdgllvmslicer library found: ${LIBDGLLVMSLICER}")
-else()
-	message(FATAL_ERROR
-	        "libdgllvmslicer library NOT found! Try specifying -DDG_LIB_PATH=<path>.")
-endif()
-
-
-set(dg_libs ${LIBDGANALYSIS} ${LIBPTA} ${LIBRD}
-	    ${LIBLLVMPTA} ${LIBLLVMRD} ${LIBLLVMDG}
-	    ${LIBDGCD} ${LIBDGTR} ${LIBDGLLVMSLICER})
-
+# --------------------------------------------------
+# Set correct install directories
+# --------------------------------------------------
 include(GNUInstallDirs)
-message(STATUS "CMAKE_INSTALL_LIBDIR: \"${CMAKE_INSTALL_LIBDIR}\"")
-message(STATUS "CMAKE_INSTALL_DATADIR: \"${CMAKE_INSTALL_FULL_DATADIR}\"")
+message(STATUS "CMAKE_INSTALL_BINDIR: \"${CMAKE_INSTALL_BINDIR}\"")
 
-enable_testing()
-
+# --------------------------------------------------
+# Subdirectories
+# --------------------------------------------------
 add_subdirectory(src)
-#add_subdirectory(tests)
