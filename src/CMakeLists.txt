@@ -5,7 +5,7 @@ find_package(Git)
 if(NOT Git_FOUND OR NOT EXISTS ${CMAKE_SOURCE_DIR}/.git AND NOT GIT_VERSION)
   set(GIT_VERSION "unknown")
 else()
-  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short=8 HEAD
                   OUTPUT_STRIP_TRAILING_WHITESPACE
                   OUTPUT_VARIABLE NEW_GIT_VERSION)
   if(NOT "${GIT_VERSION}" STREQUAL "${NEW_GIT_VERSION}")
