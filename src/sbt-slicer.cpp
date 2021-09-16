@@ -76,6 +76,10 @@ llvm::cl::opt<bool> should_verify_module("dont-verify",
     llvm::cl::desc("Verify sliced module (default=true)."),
     llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> abort_on_threads("abort-on-threads",
+    llvm::cl::desc("Abort when threads are present (default=true)."),
+    llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
+
 llvm::cl::opt<bool> remove_unused_only("remove-unused-only",
     llvm::cl::desc("Only remove unused parts of module (default=false)."),
     llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
@@ -180,6 +184,12 @@ static AnnotationOptsT parseAnnotationOptions(const std::string& annot)
 
     return opts;
 }
+
+static bool checkThreads(dg::LLVMDependenceGraph &dg) {
+    std::set<LLVMNode *> cs;
+    return dg.getCallSites("pthread_create", &cs);
+}
+
 
 std::unique_ptr<llvm::Module> parseModule(llvm::LLVMContext& context,
                                           const SlicerOptions& options)
@@ -289,6 +299,11 @@ int main(int argc, char *argv[])
 
     ModuleAnnotator annotator(options, &slicer.getDG(),
                               parseAnnotationOptions(annotationOpts));
+
+    if (abort_on_threads && checkThreads(slicer.getDG())) {
+        llvm::errs() << "ERROR: Found threads, giving up\n";
+        return 1;
+    }
 
     std::set<LLVMNode *> criteria_nodes;
     if (!getSlicingCriteriaNodes(slicer.getDG(),
