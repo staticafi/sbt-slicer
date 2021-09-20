@@ -80,6 +80,10 @@ llvm::cl::opt<bool> abort_on_threads("abort-on-threads",
     llvm::cl::desc("Abort when threads are present (default=true)."),
     llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
 
+llvm::cl::opt<bool> abort_on_unsupp("abort-on-unsupported",
+    llvm::cl::desc("Abort when some unsupported feature is present (default=true)."),
+    llvm::cl::init(true), llvm::cl::cat(SlicingOpts));
+
 llvm::cl::opt<bool> remove_unused_only("remove-unused-only",
     llvm::cl::desc("Only remove unused parts of module (default=false)."),
     llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
@@ -189,6 +193,19 @@ static bool checkThreads(dg::LLVMDependenceGraph &dg) {
     std::set<LLVMNode *> cs;
     return dg.getCallSites("pthread_create", &cs);
 }
+
+static bool checkUnsupported(dg::LLVMDependenceGraph &/* dg */) {
+    std::set<LLVMNode *> cs;
+    bool ret = LLVMDependenceGraph::getCallSites({"pthread_create", "fesetround"},
+                                                  &cs);
+    llvm::errs() << "Unsupported:\n";
+    for (auto *c : cs) {
+        llvm::errs() << "  " << *(c->getValue()) << "\n";
+    }
+
+    return ret;
+}
+
 
 
 std::unique_ptr<llvm::Module> parseModule(llvm::LLVMContext& context,
@@ -300,7 +317,13 @@ int main(int argc, char *argv[])
     ModuleAnnotator annotator(options, &slicer.getDG(),
                               parseAnnotationOptions(annotationOpts));
 
-    if (abort_on_threads && checkThreads(slicer.getDG())) {
+    if (abort_on_unsupp) {
+        if (checkUnsupported(slicer.getDG())) {
+            llvm::errs() << "ERROR: Found unsupported feature, giving up\n";
+            return 1;
+        }
+    } else if (abort_on_threads && checkThreads(slicer.getDG())) {
+        // threads are now unsupported, so have the check in 'else if'
         llvm::errs() << "ERROR: Found threads, giving up\n";
         return 1;
     }
