@@ -26,6 +26,9 @@
 *.a
 *.lib
 
+# Build directories
+build-*
+
 # Executables
 *.exe
 *.out
