@@ -1,75 +1,36 @@
+#include <cassert>
+#include <fstream>
+#include <iostream>
 #include <set>
 #include <string>
-
-#include <cassert>
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-
-#ifndef HAVE_LLVM
-#error "This code needs LLVM enabled"
-#endif
-
-#include <llvm/Config/llvm-config.h>
-
-#if (LLVM_VERSION_MAJOR < 3)
-#error "Unsupported version of LLVM"
-#endif
+#include <vector>
 
 #include <dg/tools/llvm-slicer-opts.h>
+#include <dg/tools/llvm-slicer-preprocess.h>
 #include <dg/tools/llvm-slicer-utils.h>
 #include <dg/tools/llvm-slicer.h>
-
-// ignore unused parameters in LLVM libraries
-#if (__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-#else
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#endif
-
-#if LLVM_VERSION_MAJOR >= 4
-#include <llvm/Bitcode/BitcodeReader.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#else
-#include <llvm/Bitcode/ReaderWriter.h>
-#endif
+#include "git-version.h"
 
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Instructions.h>
-#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/IRReader/IRReader.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/FormattedStream.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/SourceMgr.h>
-#include <llvm/Support/raw_os_ostream.h>
+#include <llvm/Support/raw_ostream.h>
 
-#if (__clang__)
-#pragma clang diagnostic pop // ignore -Wunused-parameter
-#else
-#pragma GCC diagnostic pop
-#endif
-
-#include <fstream>
-#include <iostream>
-
-#include "dg/ADT/Queue.h"
-#include "dg/llvm/LLVMDG2Dot.h"
-#include "dg/llvm/LLVMDGAssemblyAnnotationWriter.h"
-
-#include "git-version.h"
+#include <dg/ADT/Queue.h>
+#include <dg/util/debug.h>
 
 using namespace dg;
 
+using dg::LLVMDataDependenceAnalysisOptions;
+using dg::LLVMPointerAnalysisOptions;
 using llvm::errs;
 
 using AnnotationOptsT =
         dg::debug::LLVMDGAssemblyAnnotationWriter::AnnotationOptsT;
+
+llvm::cl::opt<bool> enable_debug(
+        "dbg", llvm::cl::desc("Enable debugging messages (default=false)."),
+        llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
 llvm::cl::opt<bool> should_verify_module(
         "dont-verify", llvm::cl::desc("Verify sliced module (default=true)."),
@@ -117,23 +78,15 @@ llvm::cl::opt<std::string> annotationOpts(
         "annotate",
         llvm::cl::desc(
                 "Save annotated version of module as a text (.ll).\n"
-                "(dd: data dependencies, cd:control dependencies,\n"
-                "rd: reaching definitions, pta: points-to information,\n"
-                "slice: comment out what is going to be sliced away, etc.)\n"
+                "Options:\n"
+                "  dd: data dependencies,\n"
+                "  cd:control dependencies,\n"
+                "  pta: points-to information,\n"
+                "  memacc: memory accesses of instructions,\n"
+                "  slice: comment out what is going to be sliced away).\n"
                 "for more options, use comma separated list"),
         llvm::cl::value_desc("val1,val2,..."), llvm::cl::init(""),
         llvm::cl::cat(SlicingOpts));
-
-llvm::cl::opt<bool> criteria_are_next_instr(
-        "criteria-are-next-instr",
-        llvm::cl::desc(
-                "Assume that slicing criteria are not the call-sites\n"
-                "of the given function, but the instructions that\n"
-                "follow the call. I.e. the call is used just to mark\n"
-                "the instruction.\n"
-                "E.g. for 'crit' being set as the criterion, slicing critera "
-                "are all instructions that follow any call of 'crit'.\n"),
-        llvm::cl::init(false), llvm::cl::cat(SlicingOpts));
 
 llvm::cl::opt<bool> memsafety(
         "memsafety",
@@ -156,7 +109,7 @@ static void maybe_print_statistics(llvm::Module *M,
     uint64_t inum, bnum, fnum, gnum;
     inum = bnum = fnum = gnum = 0;
 
-    for (const Function &F : *M) {
+    for (const auto &F : *M) {
         // don't count in declarations
         if (F.empty())
             continue;
@@ -188,8 +141,10 @@ static AnnotationOptsT parseAnnotationOptions(const std::string &annot) {
     for (const std::string &opt : lst) {
         if (opt == "dd")
             opts |= AnnotationOptsT::ANNOTATE_DD;
-        else if (opt == "cd")
+        else if (opt == "cd" || opt == "cda")
             opts |= AnnotationOptsT::ANNOTATE_CD;
+        else if (opt == "dda" || opt == "du")
+            opts |= AnnotationOptsT::ANNOTATE_DEF;
         else if (opt == "pta")
             opts |= AnnotationOptsT::ANNOTATE_PTR;
         else if (opt == "memacc")
@@ -218,49 +173,23 @@ static bool checkUnsupported(dg::LLVMDependenceGraph & /* dg */) {
     return ret;
 }
 
-std::unique_ptr<llvm::Module> parseModule(llvm::LLVMContext &context,
-                                          const SlicerOptions &options) {
-    llvm::SMDiagnostic SMD;
-
-#if ((LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR <= 5))
-    auto _M = llvm::ParseIRFile(options.inputFile, SMD, context);
-    auto M = std::unique_ptr<llvm::Module>(_M);
-#else
-    auto M = llvm::parseIRFile(options.inputFile, SMD, context);
-    // _M is unique pointer, we need to get Module *
-#endif
-
-    if (!M) {
-        SMD.print("llvm-slicer", llvm::errs());
-    }
-
-    return M;
-}
-
-#ifndef USING_SANITIZERS
-void setupStackTraceOnError(int argc, char *argv[]) {
-#if LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR < 9
-    llvm::sys::PrintStackTraceOnErrorSignal();
-#else
-    llvm::sys::PrintStackTraceOnErrorSignal(llvm::StringRef());
-#endif
-    llvm::PrettyStackTraceProgram X(argc, argv);
-}
-#else
-void setupStackTraceOnError(int, char **) {}
-#endif // not USING_SANITIZERS
-
 int main(int argc, char *argv[]) {
     setupStackTraceOnError(argc, argv);
 
 #if ((LLVM_VERSION_MAJOR >= 6))
-    llvm::cl::SetVersionPrinter(
-            [](llvm::raw_ostream &) { printf("%s\n", GIT_VERSION); });
+    llvm::cl::SetVersionPrinter([](llvm::raw_ostream & /*unused*/) {
+        printf("%s\n", GIT_VERSION);
+    });
 #else
     llvm::cl::SetVersionPrinter([]() { printf("%s\n", GIT_VERSION); });
 #endif
 
-    SlicerOptions options = parseSlicerOptions(argc, argv);
+    SlicerOptions options = parseSlicerOptions(argc, argv,
+                                               /* requireCrit = */ true);
+
+    if (enable_debug) {
+        DBG_ENABLE();
+    }
 
     if (!options.legacySecondarySlicingCriteria.empty())
         options.legacySecondarySlicingCriteria += ",";
@@ -271,7 +200,7 @@ int main(int argc, char *argv[]) {
     options.legacySecondarySlicingCriteria += "__VERIFIER_assume,klee_assume";
 
     if (memsafety) {
-        criteria_are_next_instr = true;
+        options.criteriaAreNextInstr = true;
         options.legacySecondarySlicingCriteria += ","
                                                   "llvm.lifetime.start.p0i8(),"
                                                   "llvm.lifetime.end.p0i8(),"
@@ -281,15 +210,15 @@ int main(int argc, char *argv[]) {
     }
 
     // dump_dg_only implies dumg_dg
-    if (dump_dg_only)
+    if (dump_dg_only) {
         dump_dg = true;
+    }
 
     llvm::LLVMContext context;
-    std::unique_ptr<llvm::Module> M = parseModule(context, options);
-    if (!M) {
-        llvm::errs() << "Failed parsing '" << options.inputFile << "' file:\n";
+    std::unique_ptr<llvm::Module> M =
+            parseModule("sbt-slicer", context, options);
+    if (!M)
         return 1;
-    }
 
     if (!M->getFunction(options.dgOptions.entryFunction)) {
         llvm::errs() << "The entry function not found: "
@@ -304,7 +233,7 @@ int main(int argc, char *argv[]) {
     writer.removeUnusedFromModule();
 
     if (remove_unused_only) {
-        errs() << "INFO: removed unused parts of module, exiting...\n";
+        errs() << "[sbt-slicer] removed unused parts of module, exiting...\n";
         maybe_print_statistics(M.get(), "Statistics after ");
         return writer.saveModule(should_verify_module);
     }
@@ -312,6 +241,41 @@ int main(int argc, char *argv[]) {
     /// ---------------
     // slice the code
     /// ---------------
+    if (options.cutoffDiverging && options.dgOptions.threads) {
+        llvm::errs() << "[sbt-slicer] threads are enabled, not cutting off "
+                        "diverging\n";
+        options.cutoffDiverging = false;
+    }
+
+    if (options.cutoffDiverging) {
+        DBG(sbt - slicer, "Searching for slicing criteria values");
+        auto csvalues = getSlicingCriteriaValues(
+                *M, options.slicingCriteria, options.legacySlicingCriteria,
+                options.legacySecondarySlicingCriteria,
+                options.criteriaAreNextInstr);
+        if (csvalues.empty()) {
+            llvm::errs() << "No reachable slicing criteria: '"
+                         << options.slicingCriteria << "' '"
+                         << options.legacySlicingCriteria << "'\n";
+            ::Slicer slicer(M.get(), options);
+            if (!slicer.createEmptyMain()) {
+                llvm::errs() << "ERROR: failed creating an empty main\n";
+                return 1;
+            }
+
+            maybe_print_statistics(M.get(), "Statistics after ");
+            return writer.cleanAndSaveModule(should_verify_module);
+        }
+
+        DBG(sbt - slicer, "Cutting off diverging branches");
+        if (!llvmdg::cutoffDivergingBranches(
+                    *M, options.dgOptions.entryFunction, csvalues)) {
+            errs() << "[sbt-slicer]: Failed cutting off diverging branches\n";
+            return 1;
+        }
+
+        maybe_print_statistics(M.get(), "Statistics after cutoff-diverging ");
+    }
 
     ::Slicer slicer(M.get(), options);
     if (!slicer.buildDG()) {
@@ -337,7 +301,8 @@ int main(int argc, char *argv[]) {
     if (!getSlicingCriteriaNodes(slicer.getDG(), options.slicingCriteria,
                                  options.legacySlicingCriteria,
                                  options.legacySecondarySlicingCriteria,
-                                 criteria_nodes, criteria_are_next_instr)) {
+                                 criteria_nodes,
+                                 options.criteriaAreNextInstr)) {
         llvm::errs() << "ERROR: Failed finding slicing criteria: '"
                      << options.slicingCriteria << "'\n";
 
@@ -351,7 +316,8 @@ int main(int argc, char *argv[]) {
 
     if (criteria_nodes.empty()) {
         llvm::errs() << "No reachable slicing criteria: '"
-                     << options.slicingCriteria << "'\n";
+                     << options.slicingCriteria << "' '"
+                     << options.legacySlicingCriteria << "'\n";
         if (annotator.shouldAnnotate()) {
             slicer.computeDependencies();
             annotator.annotate();
