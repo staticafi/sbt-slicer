@@ -76,9 +76,8 @@ endif()
 # DG
 # --------------------------------------------------
 
-# enable CFG and LLVM in dg
+# enable CFG in dg
 add_definitions(-DENABLE_CFG)
-add_definitions(-DHAVE_LLVM)
 
 if(NOT DG_INCLUDE_PATH)
   set(DG_INCLUDE_PATH ${CMAKE_SOURCE_DIR}/dg/include ${CMAKE_SOURCE_DIR}/dg/tools/include)
