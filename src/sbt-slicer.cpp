@@ -165,6 +165,8 @@ static bool checkUnsupported(dg::LLVMDependenceGraph & /* dg */) {
     std::set<LLVMNode *> cs;
     bool ret = LLVMDependenceGraph::getCallSites(
             {"pthread_create", "fesetround"}, &cs);
+    bool ret = dg.getCallSites(
+	{"pthread_create", "fesetround","longjmp"}, &cs);
     llvm::errs() << "Unsupported:\n";
     for (auto *c : cs) {
         llvm::errs() << "  " << *(c->getValue()) << "\n";
