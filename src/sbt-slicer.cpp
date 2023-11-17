@@ -272,6 +272,12 @@ int main(int argc, char *argv[]) {
         options.cutoffDiverging = false;
     }
 
+    if (options.cutoffDiverging && containsCallTo(*M, "longjmp")) {
+        llvm::errs() << "[sbt-slicer] contains longjmp, not cutting off diverging\n";
+        options.cutoffDiverging = false;
+    }
+
+
     if (options.cutoffDiverging) {
         DBG(sbt - slicer, "Searching for slicing criteria values");
         auto csvalues = getSlicingCriteriaValues(
