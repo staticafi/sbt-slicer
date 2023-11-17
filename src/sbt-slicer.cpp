@@ -161,10 +161,26 @@ static bool checkThreads(dg::LLVMDependenceGraph &dg) {
     return dg.getCallSites("pthread_create", &cs);
 }
 
-static bool checkUnsupported(dg::LLVMDependenceGraph & /* dg */) {
+bool containsCallTo(const llvm::Module &mod, const std::string &needle) {
+    for (const auto &fun : mod.getFunctionList()) {
+	for (const auto &bb : fun) {
+	    for (const auto &instruction : bb) {
+		if (const auto *callInst = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+		    if (const auto *calledFunction = callInst->getCalledFunction()) {
+			if (calledFunction->getName() == needle) {
+			    return true;
+			}
+		    }
+		}
+	    }
+	}
+    }
+
+    return false;
+}
+
+static bool checkUnsupported(dg::LLVMDependenceGraph & dg) {
     std::set<LLVMNode *> cs;
-    bool ret = LLVMDependenceGraph::getCallSites(
-            {"pthread_create", "fesetround"}, &cs);
     bool ret = dg.getCallSites(
 	{"pthread_create", "fesetround","longjmp"}, &cs);
     llvm::errs() << "Unsupported:\n";
@@ -238,6 +254,13 @@ int main(int argc, char *argv[]) {
         errs() << "[sbt-slicer] removed unused parts of module, exiting...\n";
         maybe_print_statistics(M.get(), "Statistics after ");
         return writer.saveModule(should_verify_module);
+    }
+
+    if (containsCallTo(*M, "pthread_create")) {
+	errs() <<  "[sbt-slicer] found pthread_create(), setting consider-threads to true\n";
+	options.dgOptions.threads = true;
+	options.dgOptions.PTAOptions.threads = true;
+	options.dgOptions.DDAOptions.threads = true;
     }
 
     /// ---------------
