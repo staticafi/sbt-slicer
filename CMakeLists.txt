@@ -18,6 +18,7 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "RelWithDebInfo"
 # --------------------------------------------------
 # Compiler flags
 # --------------------------------------------------
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -36,17 +37,6 @@ message(STATUS "LLVM libraries dir: ${LLVM_LIBRARY_DIRS}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_DIR}")
 include(AddLLVM)
-
-# TODO: move this to the section above when we switch to C++14
-# LLVM 10 and newer require at least C++14 standard
-if (${LLVM_PACKAGE_VERSION} VERSION_GREATER "9.0")
-  set(CMAKE_CXX_STANDARD 14)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
-else()
-  # otherwise we need C++11 standard
-  set(CMAKE_CXX_STANDARD 11)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-endif()
 
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBRARY_DIRS})
